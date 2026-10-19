@@ -44,7 +44,7 @@ Skrypt tworzy `.env` z losowymi hasłami oraz `secrets/realm.json`, `secrets/fro
 2. Skieruj prywatny DNS `rmm.pcmed.lan` na `10.44.0.1`. Zapora ma dopuszczać 443 wyłącznie z VPN i administracyjnej sieci zarządzania. Bez przekierowania portów z internetu.
 3. Uruchom `docker compose config --quiet`, następnie `docker compose up --build -d`.
 4. Sprawdź `docker compose ps` i `docker compose logs --tail 100 api keycloak migrate`. Migracja musi zakończyć się powodzeniem, API przejść healthcheck, a Keycloak zakończyć import realm.
-5. Otwórz `https://rmm.pcmed.lan/`. Bazy, API i Keycloak nie publikują osobnych portów hosta. Usługi w Compose korzystają z wydzielonych sieci wewnętrznych.
+5. Otwórz `https://rmm.pcmed.lan/`. Bazy, API i Keycloak nie publikują osobnych portów hosta i korzystają z wydzielonych sieci wewnętrznych. Jedynie Nginx jest dodatkowo dołączony do sieci brzegowej, aby obsłużyć opublikowany port HTTPS przypisany do adresu VPN hosta.
 
 W środowisku testowym można wystawić własny CA, ale trzeba zainstalować jego certyfikat jako zaufany w przeglądarkach oraz magazynie **LocalMachine Root** bramek i agentów. Nie wyłączamy sprawdzania certyfikatów. Sam VPN nie zastępuje HTTPS.
 

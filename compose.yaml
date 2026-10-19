@@ -89,7 +89,7 @@ services:
     depends_on:
       api: { condition: service_healthy }
       keycloak: { condition: service_started }
-    networks: [backend]
+    networks: [backend, edge]
     security_opt: ["no-new-privileges:true"]
     restart: unless-stopped
 volumes:
@@ -98,3 +98,4 @@ volumes:
 networks:
   backend: { internal: true }
   identity: { internal: true }
+  edge: {}

@@ -67,7 +67,7 @@ jobs:
           docker compose config --quiet
           docker compose up --build -d
           for attempt in $(seq 1 60); do
-            if curl --fail --silent --insecure --noproxy '*' --resolve "rmm.test:443:$ADDRESS" https://rmm.test/realms/pcmed/.well-known/openid-configuration > /tmp/discovery.json; then break; fi
+            if curl --fail --silent --show-error --connect-timeout 3 --max-time 5 --insecure --noproxy '*' --resolve "rmm.test:443:$ADDRESS" https://rmm.test/realms/pcmed/.well-known/openid-configuration > /tmp/discovery.json; then break; fi
             sleep 5
           done
           python -c "import json; assert json.load(open('/tmp/discovery.json'))['issuer'] == 'https://rmm.test/realms/pcmed'"
