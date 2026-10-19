@@ -1,5 +1,11 @@
 # PC MED RMM — MVP
 
+**Instalacja krok po kroku:** [centrala Linux, serwer pośredniczący Windows i komputery klientów](docs/WDROZENIE.md).
+
+**Gotowe EXE:** w [Actions → Verify MVP](https://github.com/Pawel-sp9pw/pcmed-rrm/actions/workflows/ci.yml), w najnowszym poprawnym przebiegu dla `codex/rmm-mvp`, pobierz artefakt **windows-mvp**. Paczka zawiera `Agent/PcMed.Agent.exe`, `Gateway/PcMed.Gateway.exe`, moduł komunikatów, skrypty `Install-Agent.ps1` i `Install-Gateway.ps1` oraz `WDROZENIE.md`. Nie musisz kompilować źródeł. Zachowaj całe katalogi z zależnościami; same EXE nie są graficznymi instalatorami.
+
+Kod jest na gałęzi **codex/rmm-mvp** w [PR #1](https://github.com/Pawel-sp9pw/pcmed-rrm/pull/1). Dopóki PR nie zostanie scalony, gałąź `main` zawiera tylko szkielet repozytorium.
+
 Centralny panel zarządzania komputerami Windows klientów: FastAPI, PostgreSQL, React oraz usługi Windows .NET 10 LTS. Agent odpytuje centralę przez HTTPS, bez otwierania portów na stacjach roboczych. U klienta wystarczy **jedna bramka z VPN**; pozostałe komputery korzystają z jej adresu LAN.
 
 To kod MVP do uruchomienia i pilotażu w kontrolowanej sieci. Repozytorium i PR nie oznaczają wdrożenia produkcyjnego. Konfiguracja serwera, VPN, DNS, certyfikatów, kopii zapasowych i kont pozostaje po stronie instalacji.

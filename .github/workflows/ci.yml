@@ -53,8 +53,9 @@ jobs:
       - run: dotnet restore PcMed.sln --locked-mode
       - run: dotnet test PcMed.sln -c Release --no-restore
       - run: ../scripts/publish-windows.ps1
+      - run: ../scripts/test-package.ps1
       - uses: actions/upload-artifact@v4
-        with: { name: windows-mvp, path: artifacts/windows, retention-days: 7 }
+        with: { name: windows-mvp, path: artifacts/windows, retention-days: 30 }
   compose:
     runs-on: ubuntu-latest
     timeout-minutes: 15
