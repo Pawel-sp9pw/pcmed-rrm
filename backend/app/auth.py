@@ -1,4 +1,5 @@
 import hashlib
+import logging
 from dataclasses import dataclass
 from functools import lru_cache
 
@@ -35,7 +36,7 @@ class Principal:
 
 @lru_cache
 def jwks():
-    return jwt.PyJWKClient(settings().oidc_jwks_url, cache_keys=True, lifespan=300, timeout=5)
+    return jwt.PyJWKClient(settings().oidc_jwks_url, cache_keys=False, lifespan=300, timeout=5)
 
 
 def principal(credentials: HTTPAuthorizationCredentials | None = Depends(bearer)) -> Principal:
@@ -51,7 +52,8 @@ def principal(credentials: HTTPAuthorizationCredentials | None = Depends(bearer)
         if not isinstance(tenants, list) or not isinstance(roles, list) or not isinstance(claims["sub"], str):
             raise ValueError("Invalid claims")
         return Principal(claims["sub"], set(roles), set(tenants))
-    except (jwt.PyJWTError, ValueError, TypeError, AttributeError):
+    except (jwt.PyJWTError, ValueError, TypeError, AttributeError) as error:
+        logging.getLogger(__name__).warning("OIDC validation rejected (%s)", type(error).__name__)
         raise HTTPException(401, "Invalid or expired access token") from None
 
 

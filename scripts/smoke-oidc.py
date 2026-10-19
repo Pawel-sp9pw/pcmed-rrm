@@ -2,6 +2,7 @@
 import argparse
 import base64
 import hashlib
+import json
 import secrets
 from html.parser import HTMLParser
 from pathlib import Path
@@ -76,7 +77,16 @@ def main():
         create_user(admin_username, "platform_admin")
         operator_id = create_user(operator_username, "operator")
         admin_headers = login(admin_username)
-        assert "platform_admin" in checked(client.get("/api/me", headers=admin_headers))["roles"]
+        identity = client.get("/api/me", headers=admin_headers)
+        if identity.status_code != 200:
+            token = admin_headers["Authorization"].split(" ", 1)[1]
+            payload = token.split(".")[1]
+            claims = json.loads(base64.urlsafe_b64decode(payload + "=" * (-len(payload) % 4)))
+            print("OIDC diagnostic:", {"issuer": claims.get("iss"), "audience": claims.get("aud"),
+                                      "subject_type": type(claims.get("sub")).__name__,
+                                      "roles_type": type(claims.get("realm_access", {}).get("roles")).__name__,
+                                      "tenant_type": type(claims.get("tenant_ids")).__name__})
+        assert "platform_admin" in checked(identity)["roles"]
         alpha = checked(client.post("/api/tenants", headers=admin_headers, json={"name": "CI Alpha " + suffix}))
         beta = checked(client.post("/api/tenants", headers=admin_headers, json={"name": "CI Beta " + suffix}))
         group_response = client.post(realm_path + "/groups", headers=administrator, json={"name": alpha["id"]})
