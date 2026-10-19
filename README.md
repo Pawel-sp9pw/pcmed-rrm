@@ -137,7 +137,7 @@ Na komputerze bramki może równolegle działać agent, jeśli sam komputer tak�
 ## Instalacje i skrypty
 
 1. Dodaj definicję w Bibliotece. MSI/EXE wymagają bezpośredniego adresu HTTPS z allowlisty oraz SHA-256 pliku. Hash uzyskasz np. `Get-FileHash .\app.msi -Algorithm SHA256`. Argumenty podaj jako tablicę JSON: `["/quiet", "/norestart"]`. MSI otrzymuje automatycznie `/i <plik> /qn /norestart`.
-2. BAT/PowerShell wymagają pełnej treści skryptu; hash UTF-8 oblicza serwer. Nie ma edycji zatwierdzonej wersji ani dopisywania argumentów w chwili zlecania. Nowa treść oznacza nową definicję i nową zgodę.
+2. BAT/PowerShell wymagają pełnej treści skryptu; hash pliku UTF-8 oblicza serwer. PowerShell ma BOM, aby Windows PowerShell 5.1 prawidłowo odczytywał polskie znaki; BAT jest bez BOM (w skrypcie używającym UTF-8 ustaw `chcp 65001`). Nie ma edycji zatwierdzonej wersji ani dopisywania argumentów w chwili zlecania. Nowa treść oznacza nową definicję i nową zgodę.
 3. Druga osoba przegląda treść, URL, hash, argumenty i limit czasu, a następnie zatwierdza. Rola administratora nie omija wymogu innej osoby.
 4. W Komputerach zaznacz odbiorców i wybierz zatwierdzoną operację. Potwierdź uruchomienie. Wyniki są w Zadaniach; HTML z wyników jest prezentowany jako zwykły tekst.
 

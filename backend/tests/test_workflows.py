@@ -175,3 +175,34 @@ def test_postgres_concurrent_claims(approved):
     with ThreadPoolExecutor(max_workers=2) as pool:
         statuses = list(pool.map(lambda _: client.post("/api/agent/next", headers=headers).status_code, range(2)))
     assert sorted(statuses) == [200, 204]
+
+
+def test_powershell_hash_includes_utf8_bom(system):
+    client, *_ = system
+    script = "Write-Output 'Zażółć gęślą jaźń'"
+    response = client.post("/api/tenants/alpha/definitions", json={"name": "Unicode", "kind": "powershell", "script": script})
+    assert response.status_code == 201
+    assert response.json()["spec"]["sha256"] == hashlib.sha256(script.encode("utf-8-sig")).hexdigest()
+
+
+def test_postgres_concurrent_enrollment(system):
+    client, _, factory = system
+    if factory.kw["bind"].dialect.name != "postgresql":
+        pytest.skip("Enrollment row locks require PostgreSQL")
+    token = client.post("/api/tenants/alpha/enrollments").json()["token"]
+    payload = {"token": token, "hostname": "PC", "os_version": "Windows"}
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        statuses = list(pool.map(lambda _: client.post("/api/agent/enroll", json=payload).status_code, range(2)))
+    assert sorted(statuses) == [201, 401]
+
+
+def test_postgres_enqueue_and_revocation_are_serialized(approved):
+    client, _, factory, device_id, _, definition_id = approved
+    if factory.kw["bind"].dialect.name != "postgresql":
+        pytest.skip("Device row locks require PostgreSQL")
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        queued = pool.submit(client.post, "/api/tenants/alpha/jobs", json={"device_ids": [device_id], "definition_id": definition_id})
+        revoked = pool.submit(client.post, f"/api/tenants/alpha/devices/{device_id}/revoke")
+        assert queued.result().status_code in {201, 404}
+        assert revoked.result().status_code == 200
+    assert all(job["state"] != "queued" for job in client.get("/api/tenants/alpha/jobs").json())

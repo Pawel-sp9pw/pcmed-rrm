@@ -25,7 +25,7 @@ public sealed class Executor(SecretFile secrets, NoticePipe notices, IOptions<Ag
             Directory.CreateDirectory(directory);
             var path = Path.Combine(directory, "payload." + (job.Kind == "powershell" ? "ps1" : job.Kind));
             if (job.Spec.Script is not null)
-                await File.WriteAllTextAsync(path, job.Spec.Script, new UTF8Encoding(false), deadline.Token);
+                await File.WriteAllTextAsync(path, job.Spec.Script, new UTF8Encoding(job.Kind == "powershell"), deadline.Token);
             else
                 await Download(job, path, deadline.Token);
             await using (var stream = File.OpenRead(path))

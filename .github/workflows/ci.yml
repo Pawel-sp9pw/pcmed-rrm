@@ -57,6 +57,7 @@ jobs:
         with: { name: windows-mvp, path: artifacts/windows, retention-days: 7 }
   compose:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - run: |
@@ -72,6 +73,9 @@ jobs:
           python -c "import json; assert json.load(open('/tmp/discovery.json'))['issuer'] == 'https://rmm.test/realms/pcmed'"
           curl --fail --insecure --noproxy '*' --resolve "rmm.test:443:$ADDRESS" https://rmm.test/ | grep 'PC MED'
           test "$(curl --silent --insecure --noproxy '*' --resolve "rmm.test:443:$ADDRESS" -o /dev/null -w '%{http_code}' https://rmm.test/api/me)" = 401
+          echo "$ADDRESS rmm.test" | sudo tee -a /etc/hosts > /dev/null
+          python -m pip install httpx
+          python scripts/smoke-oidc.py --origin https://rmm.test --allow-self-signed
       - if: failure()
         run: docker compose logs --tail 150
       - if: always()

@@ -13,11 +13,21 @@ public sealed class SecretFile
     public SecretFile(string root)
     {
         Root = Path.GetFullPath(root);
-        var directory = Directory.CreateDirectory(Root);
-        if ((directory.Attributes & FileAttributes.ReparsePoint) != 0)
-            throw new InvalidOperationException("State directory must not be a reparse point.");
+        var sharedRoot = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "PcMed");
+        if (Root.StartsWith(sharedRoot + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+            SecureDirectory(sharedRoot);
+        SecureDirectory(Root);
+    }
+
+    private static void SecureDirectory(string root)
+    {
+        for (var current = new DirectoryInfo(root); current is not null; current = current.Parent)
+            if (current.Exists && (current.Attributes & FileAttributes.ReparsePoint) != 0)
+                throw new InvalidOperationException("State directory and its ancestors must not be reparse points.");
+        var directory = Directory.CreateDirectory(root);
         var security = new DirectorySecurity();
         security.SetAccessRuleProtection(true, false);
+        security.SetOwner(new SecurityIdentifier(WellKnownSidType.BuiltinAdministratorsSid, null));
         foreach (var identity in new[] { WellKnownSidType.LocalSystemSid, WellKnownSidType.BuiltinAdministratorsSid })
             security.AddAccessRule(new FileSystemAccessRule(new SecurityIdentifier(identity, null), FileSystemRights.FullControl,
                 InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit, PropagationFlags.None, AccessControlType.Allow));

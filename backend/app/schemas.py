@@ -48,7 +48,10 @@ class DefinitionInput(Name):
         else:
             if self.script is None or self.url is not None or self.arguments or self.sha256 is not None:
                 raise ValueError("Scripts require inline content and no URL, arguments or custom hash")
-            self.sha256 = hashlib.sha256(self.script.encode("utf-8")).hexdigest()
+            content = self.script.encode("utf-8")
+            if self.kind == "powershell":
+                content = b"\xef\xbb\xbf" + content
+            self.sha256 = hashlib.sha256(content).hexdigest()
         return self
 
 

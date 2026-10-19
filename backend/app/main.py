@@ -246,7 +246,8 @@ def revoke_definition(tenant_id: str, definition_id: str, user: Principal = Depe
 
 def validated_targets(session: Session, tenant_id: str, device_ids: list[str]):
     unique_ids = set(device_ids)
-    found = list(session.scalars(select(Device).where(Device.tenant_id == tenant_id, Device.id.in_(unique_ids), Device.revoked.is_(False))))
+    found = list(session.scalars(select(Device).where(Device.tenant_id == tenant_id, Device.id.in_(unique_ids), Device.revoked.is_(False))
+                                 .order_by(Device.id).with_for_update()))
     if len(found) != len(unique_ids):
         raise HTTPException(404, "One or more devices are unavailable")
     return found
@@ -255,11 +256,12 @@ def validated_targets(session: Session, tenant_id: str, device_ids: list[str]):
 @app.post("/api/tenants/{tenant_id}/jobs", status_code=201)
 def dispatch(tenant_id: str, body: schemas.Dispatch, user: Principal = Depends(principal), session: Session = Depends(database)):
     user.allow(tenant_id, write=True)
+    targets = validated_targets(session, tenant_id, body.device_ids)
     definition = scoped(session, Definition, body.definition_id, tenant_id, lock=True)
     if definition.status != "approved":
         raise HTTPException(409, "Only approved definitions can run")
     jobs = []
-    for device in validated_targets(session, tenant_id, body.device_ids):
+    for device in targets:
         job = Job(tenant_id=tenant_id, device_id=device.id, definition_id=definition.id, kind=definition.kind,
                   spec=definition.spec, timeout_seconds=definition.timeout_seconds)
         session.add(job)
@@ -308,7 +310,9 @@ def cancel(tenant_id: str, job_id: str, user: Principal = Depends(principal), se
 
 @app.post("/api/agent/next")
 def next_job(device: Device = Depends(agent), session: Session = Depends(database)):
-    session.scalar(select(Device).where(Device.id == device.id).with_for_update())
+    device = session.scalar(select(Device).where(Device.id == device.id).with_for_update().execution_options(populate_existing=True))
+    if device.revoked:
+        raise HTTPException(401, "Agent revoked")
     expire_jobs(session, device.tenant_id, device.id)
     if session.scalar(select(Job.id).where(Job.device_id == device.id, Job.state == "running")):
         session.commit()
@@ -319,7 +323,7 @@ def next_job(device: Device = Depends(agent), session: Session = Depends(databas
         session.commit()
         return Response(status_code=204)
     if job.definition_id:
-        definition = scoped(session, Definition, job.definition_id, device.tenant_id, lock=True)
+        definition = scoped(session, Definition, job.definition_id, device.tenant_id)
         if definition.status != "approved":
             job.state = "cancelled"
             job.finished_at = now()
