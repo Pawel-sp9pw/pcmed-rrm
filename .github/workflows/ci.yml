@@ -71,6 +71,7 @@ jobs:
             sleep 5
           done
           python -c "import json; assert json.load(open('/tmp/discovery.json'))['issuer'] == 'https://rmm.test/realms/pcmed'"
+          docker compose exec -T api python -c "import json,urllib.request; data=json.load(urllib.request.urlopen('http://keycloak:8080/realms/pcmed/protocol/openid-connect/certs')); assert any(key.get('alg') == 'RS256' for key in data['keys'])"
           curl --fail --insecure --noproxy '*' --resolve "rmm.test:443:$ADDRESS" https://rmm.test/ | grep 'PC MED'
           test "$(curl --silent --insecure --noproxy '*' --resolve "rmm.test:443:$ADDRESS" -o /dev/null -w '%{http_code}' https://rmm.test/api/me)" = 401
           echo "$ADDRESS rmm.test" | sudo tee -a /etc/hosts > /dev/null

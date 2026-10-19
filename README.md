@@ -71,7 +71,7 @@ Wbudowany Keycloak używa Authorization Code + PKCE S256. Logowanie hasłem odby
 
 **MFA jest opcjonalne.** Domyślny browser flow Keycloak stosuje OTP tylko dla kont, które skonfigurowały drugi składnik. Użytkownik może włączyć go w `https://rmm.pcmed.lan/realms/pcmed/account/`, a administrator wymusić dla wybranego konta przez required action `Configure OTP`. Nie ma obowiązkowego OTP dla wszystkich użytkowników.
 
-Backend sprawdza podpis RS256, `iss`, `aud=pcmed-api`, daty ważności, role i `tenant_ids`; nie ufa nagłówkom z tożsamością użytkownika. Przy zewnętrznym OIDC odtwórz te same claimy i ustaw `PCMED_OIDC_ISSUER`, `PCMED_OIDC_JWKS_URL`. Adres JWKS może być wewnętrznym HTTP wyłącznie na kontrolowanej sieci Compose. Issuer pozostaje HTTPS. Błędny podpis, odbiorca lub issuer jest odrzucany.
+Backend sprawdza podpis RS256, `iss`, `aud=pcmed-api`, daty ważności, role i `tenant_ids`; nie ufa nagłówkom z tożsamością użytkownika. Przy zewnętrznym OIDC odtwórz te same claimy i ustaw `PCMED_OIDC_ISSUER`, `PCMED_OIDC_JWKS_URL`. Adres JWKS może być wewnętrznym HTTP wyłącznie na kontrolowanej sieci Compose. Realm Keycloak ma politykę SSL `external`, aby API mogło pobierać publiczne klucze bezpośrednio w tej sieci. Dostęp z hosta odbywa się wyłącznie przez HTTPS Nginx, a issuer pozostaje HTTPS. Błędny podpis, odbiorca lub issuer jest odrzucany.
 
 Zmiany ról i blokada konta obowiązują istniejące tokeny po maksymalnie 5 minutach. W sytuacji awaryjnej zablokuj sieć dostępu lub wyłącz API. Unieważnienie tokenów urządzenia/bramki jest sprawdzane w bazie przy każdym żądaniu.
 

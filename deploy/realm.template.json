@@ -1,7 +1,7 @@
 {
   "realm": "pcmed",
   "enabled": true,
-  "sslRequired": "all",
+  "sslRequired": "external",
   "registrationAllowed": false,
   "resetPasswordAllowed": false,
   "rememberMe": false,
