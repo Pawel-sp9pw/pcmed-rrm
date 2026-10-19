@@ -1,0 +1,17 @@
+.env
+.venv/
+__pycache__/
+.pytest_cache/
+*.pyc
+node_modules/
+dist/
+bin/
+obj/
+TestResults/
+*.user
+*.pfx
+*.key
+secrets/
+artifacts/
+.coverage
+*.egg-info/
