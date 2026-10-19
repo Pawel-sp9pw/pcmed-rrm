@@ -1,6 +1,7 @@
 {
   "realm": "pcmed",
   "enabled": true,
+  "defaultSignatureAlgorithm": "RS256",
   "sslRequired": "external",
   "registrationAllowed": false,
   "resetPasswordAllowed": false,
@@ -24,10 +25,11 @@
       "directAccessGrantsEnabled": false,
       "implicitFlowEnabled": false,
       "serviceAccountsEnabled": false,
+      "fullScopeAllowed": true,
       "redirectUris": ["${ORIGIN}/"],
       "webOrigins": ["${ORIGIN}"],
       "attributes": { "pkce.code.challenge.method": "S256", "post.logout.redirect.uris": "${ORIGIN}/" },
-      "defaultClientScopes": ["web-origins", "roles", "profile", "email"],
+      "defaultClientScopes": ["web-origins", "basic", "roles", "profile", "email"],
       "protocolMappers": [
         { "name":"pcmed-audience", "protocol":"openid-connect", "protocolMapper":"oidc-audience-mapper", "config": {"included.custom.audience":"pcmed-api","access.token.claim":"true","id.token.claim":"false"} },
         { "name":"client-memberships", "protocol":"openid-connect", "protocolMapper":"oidc-group-membership-mapper", "config": {"claim.name":"tenant_ids","full.path":"false","access.token.claim":"true","id.token.claim":"false","userinfo.token.claim":"false"} }
