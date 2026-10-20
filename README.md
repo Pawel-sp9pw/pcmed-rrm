@@ -1,5 +1,7 @@
 # PC MED RMM — MVP
 
+**Proxmox Community Scripts:** [utworzenie VM i instalacja centrali 172.20.0.8](docs/PROXMOX.md).
+
 **Instalacja krok po kroku:** [centrala Linux, serwer pośredniczący Windows i komputery klientów](docs/WDROZENIE.md).
 
 **Gotowe EXE:** w [Actions → Verify MVP](https://github.com/Pawel-sp9pw/pcmed-rrm/actions/workflows/ci.yml), w najnowszym poprawnym przebiegu dla `codex/rmm-mvp`, pobierz artefakt **windows-mvp**. Paczka zawiera `Agent/PcMed.Agent.exe`, `Gateway/PcMed.Gateway.exe`, moduł komunikatów, skrypty `Install-Agent.ps1` i `Install-Gateway.ps1` oraz `WDROZENIE.md`. Nie musisz kompilować źródeł. Zachowaj całe katalogi z zależnościami; same EXE nie są graficznymi instalatorami.
@@ -35,32 +37,32 @@ flowchart LR
 
 ## Uruchomienie centrali
 
-Wymagania: serwer Linux z Docker Engine i Compose v2, Python 3.12+, prywatny adres interfejsu VPN, DNS dostępny dla operatorów i bramek oraz certyfikat HTTPS z zaufanego CA. Przykłady nazw i adresów poniżej należy dostosować do swojej sieci.
+Wymagania: serwer Linux z Docker Engine i Compose v2, Python 3.12+, prywatny adres interfejsu VPN, adres/nazwa dostępne dla operatorów i bramek oraz certyfikat HTTPS z zaufanego CA. Przykłady nazw i adresów poniżej należy dostosować do swojej sieci.
 
 ```sh
 python scripts/configure.py \
-  --hostname rmm.pcmed.lan \
-  --vpn-bind 10.44.0.1 \
-  --artifact-host rmm.pcmed.lan
+  --hostname 172.20.0.8 \
+  --vpn-bind 172.20.0.8 \
+  --artifact-host 172.20.0.8
 ```
 
 Skrypt tworzy `.env` z losowymi hasłami oraz `secrets/realm.json`, `secrets/frontend-config.json` i `secrets/packages/`. Nie nadpisuje istniejącej konfiguracji. Na Windows dodatkowo ogranicz ACL `.env` i `secrets/` do administratora; prawa POSIX nie zastępują ACL Windows.
 
 1. Umieść certyfikat z pełnym łańcuchem w `secrets/tls.crt`, a klucz prywatny w `secrets/tls.key`. Ogranicz dostęp do klucza, np. `chmod 600 secrets/tls.key`.
-2. Skieruj prywatny DNS `rmm.pcmed.lan` na `10.44.0.1`. Zapora ma dopuszczać 443 wyłącznie z VPN i administracyjnej sieci zarządzania. Bez przekierowania portów z internetu.
+2. Centrala używa adresu `172.20.0.8` i certyfikatu z SAN IP:172.20.0.8. Przy własnej nazwie DNS skonfiguruj ją spójnie w całym stosie. Zapora ma dopuszczać 38443 wyłącznie z VPN i administracyjnej sieci zarządzania. Bez przekierowania portów z internetu.
 3. Uruchom `docker compose config --quiet`, następnie `docker compose up --build -d`.
 4. Sprawdź `docker compose ps` i `docker compose logs --tail 100 api keycloak migrate`. Migracja musi zakończyć się powodzeniem, API przejść healthcheck, a Keycloak zakończyć import realm.
-5. Otwórz `https://rmm.pcmed.lan/`. Bazy, API i Keycloak nie publikują osobnych portów hosta i korzystają z wydzielonych sieci wewnętrznych. Jedynie Nginx jest dodatkowo dołączony do sieci brzegowej, aby obsłużyć opublikowany port HTTPS przypisany do adresu VPN hosta.
+5. Otwórz `https://172.20.0.8:38443/`. Bazy, API i Keycloak nie publikują osobnych portów hosta i korzystają z wydzielonych sieci wewnętrznych. Jedynie Nginx jest dodatkowo dołączony do sieci brzegowej, aby obsłużyć opublikowany port HTTPS przypisany do adresu VPN hosta.
 
 W środowisku testowym można wystawić własny CA, ale trzeba zainstalować jego certyfikat jako zaufany w przeglądarkach oraz magazynie **LocalMachine Root** bramek i agentów. Nie wyłączamy sprawdzania certyfikatów. Sam VPN nie zastępuje HTTPS.
 
-Instalatory można umieszczać ręcznie w `secrets/packages/`, np. `app.msi` będzie dostępny jako `https://rmm.pcmed.lan/packages/app.msi`. Repozytorium pakietów jest dostępne w prywatnej sieci, bez osobnego logowania; nie umieszczaj tam sekretów. Alternatywnie użyj własnego repozytorium HTTPS i dodaj jego host do allowlisty centrali i bramki. Adres musi wskazywać bezpośrednio plik: przekierowania są odrzucane.
+Instalatory można umieszczać ręcznie w `secrets/packages/`, np. `app.msi` będzie dostępny jako `https://172.20.0.8:38443/packages/app.msi`. Repozytorium pakietów jest dostępne w prywatnej sieci, bez osobnego logowania; nie umieszczaj tam sekretów. Alternatywnie użyj własnego repozytorium HTTPS i dodaj jego host do allowlisty centrali i bramki. Adres musi wskazywać bezpośrednio plik: przekierowania są odrzucane.
 
 ## Konta, role i opcjonalne MFA
 
 Wbudowany Keycloak używa Authorization Code + PKCE S256. Logowanie hasłem odbywa się u dostawcy tożsamości; panel nie przechowuje haseł. Direct Access Grants i implicit flow są wyłączone. Tokeny panelu są trzymane w pamięci, a stan wymiany kodu w `sessionStorage`. Odświeżenie strony wymaga ponownego przekierowania do logowania; istniejąca sesja SSO zwykle wystarcza. Access token wygasa po 5 minutach, sesja SSO maksymalnie po 8 godzinach.
 
-1. Wejdź na `https://rmm.pcmed.lan/admin/`. Konto techniczne pierwszego uruchomienia: `bootstrap-admin`, hasło z `KEYCLOAK_ADMIN_PASSWORD` w lokalnym `.env`.
+1. Wejdź na `https://172.20.0.8:38443/admin/`. Konto techniczne pierwszego uruchomienia: `bootstrap-admin`, hasło z `KEYCLOAK_ADMIN_PASSWORD` w lokalnym `.env`.
 2. Utwórz imienne konto administratora Keycloak i usuń konto bootstrap po konfiguracji. Nigdy nie używaj kont technicznych jako kont operatorów.
 3. W realm **pcmed** utwórz użytkowników, ustaw mocne hasła i przypisz role realm:
 
@@ -75,7 +77,7 @@ Wbudowany Keycloak używa Authorization Code + PKCE S256. Logowanie hasłem odby
 5. W Keycloak utwórz **grupę o nazwie dokładnie równej identyfikatorowi klienta**. Dodaj do niej uprawnionych użytkowników. Mapper grup tworzy tablicę `tenant_ids` w access tokenie. Role bez członkostwa w odpowiedniej grupie nie otwierają dostępu do klienta. Użytkownik może należeć do kilku klientów. Po zmianach zaloguj go ponownie.
 6. Do zatwierdzania treści potrzebne jest drugie imienne konto, np. z rolą `approver` i członkostwem w tej samej grupie.
 
-**MFA jest opcjonalne.** Domyślny browser flow Keycloak stosuje OTP tylko dla kont, które skonfigurowały drugi składnik. Użytkownik może włączyć go w `https://rmm.pcmed.lan/realms/pcmed/account/`, a administrator wymusić dla wybranego konta przez required action `Configure OTP`. Nie ma obowiązkowego OTP dla wszystkich użytkowników.
+**MFA jest opcjonalne.** Domyślny browser flow Keycloak stosuje OTP tylko dla kont, które skonfigurowały drugi składnik. Użytkownik może włączyć go w `https://172.20.0.8:38443/realms/pcmed/account/`, a administrator wymusić dla wybranego konta przez required action `Configure OTP`. Nie ma obowiązkowego OTP dla wszystkich użytkowników.
 
 Backend sprawdza podpis RS256, `iss`, `aud=pcmed-api`, daty ważności, role i `tenant_ids`; nie ufa nagłówkom z tożsamością użytkownika. Przy zewnętrznym OIDC odtwórz te same claimy i ustaw `PCMED_OIDC_ISSUER`, `PCMED_OIDC_JWKS_URL`. Adres JWKS może być wewnętrznym HTTP wyłącznie na kontrolowanej sieci Compose. Realm Keycloak ma politykę SSL `external`, aby API mogło pobierać publiczne klucze bezpośrednio w tej sieci. Dostęp z hosta odbywa się wyłącznie przez HTTPS Nginx, a issuer pozostaje HTTPS. Błędny podpis, odbiorca lub issuer jest odrzucany.
 
@@ -99,22 +101,29 @@ Wyniki znajdują się w `artifacts/windows/Agent`, `Gateway` i `Notifier`. Katal
 
 1. W panelu wybierz klienta → **Bramki LAN** → dodaj bramkę. Token jest pokazywany jeden raz.
 2. Wybierz stały komputer Windows z VPN do centrali, skonfiguruj nazwę DNS w LAN, np. `gateway.firma.lan` → `192.168.20.10`.
-3. Zainstaluj w `LocalMachine\My` certyfikat HTTPS z SAN `gateway.firma.lan`, kluczem prywatnym dostępnym dla LocalSystem i pełnym zaufaniem CA na końcówkach. Produkcyjnie używaj certyfikatu z własnego firmowego CA lub innego zaufanego CA.
-4. W PowerShell 7 jako administrator uruchom:
+3. Zainstaluj w `LocalMachine\My` certyfikat HTTPS z SAN **IP:192.168.20.10** oraz opcjonalnie DNS `gateway.firma.lan`, kluczem prywatnym dostępnym dla LocalSystem i pełnym zaufaniem CA na końcówkach. Produkcyjnie używaj certyfikatu z własnego firmowego CA lub innego zaufanego CA.
+4. Z rozpakowanej paczki odczytaj `$cert` i `$gatewaySha256` według [instrukcji](docs/WDROZENIE.md#52-token-i-instalacja). Przykład poniżej dotyczy lokalnie opublikowanej paczki; w pobranym artefakcie użyj `Install-Gateway.ps1`.
 
 ```powershell
 ./scripts/install-windows.ps1 -Component Gateway `
   -PublishDirectory ./artifacts/windows/Gateway `
-  -Endpoint https://rmm.pcmed.lan `
-  -ArtifactHosts rmm.pcmed.lan `
-  -LanDnsName gateway.firma.lan -LanSubnet 192.168.20.0/24
+  -Endpoint https://172.20.0.8:38443 `
+  -ArtifactHosts 172.20.0.8 `
+  -LanDnsName gateway.firma.lan -LanSubnet 192.168.20.0/24 `
+  -LanAddress 192.168.20.10 -CertificateThumbprint $cert.Thumbprint
 ```
 
-Skrypt poprosi o token bez wypisywania go na ekran. Utworzy usługę `PcMedGateway` i regułę zapory TCP 7443 ograniczoną do podanej podsieci, profilu Domain/Private i programu. Konfiguracja jest w `C:\Program Files\PcMed\Gateway\appsettings.json`. Sekret i cache w `C:\ProgramData\PcMed\Gateway` są chronione ACL administratorów/System; sekret dodatkowo DPAPI LocalMachine.
+Skrypt poprosi o token bez wypisywania go na ekran. Utworzy usługę `PcMedGateway` i regułę zapory TCP 38444 ograniczoną do podanej podsieci, profilu Domain/Private i programu. Konfiguracja jest w `C:\Program Files\PcMed\Gateway\appsettings.json`. Sekret i cache w `C:\ProgramData\PcMed\Gateway` są chronione ACL administratorów/System; sekret dodatkowo DPAPI LocalMachine.
 
 Bramka udostępnia wyłącznie wskazane trasy agenta, a nie panel ani dowolny proxy URL. Dodaje swój token do połączenia z centralą, która sprawdza zgodność klienta. Dostęp do instalatora wymaga aktywnego zadania i prawidłowego tokenu urządzenia. Bramka pobiera plik dopiero po uzyskaniu uprawnionego ticketu, nie przesyła bearer tokenów agentów do serwera pakietów, odrzuca przekierowania i weryfikuje hash. Cache jest adresowany SHA-256; domyślnie do 10 GiB, plik do 512 MiB. Przy każdym użyciu sprawdzany jest hash pliku cache. Bramka wymaga zaufania administratora klienta, bo kończy połączenie TLS agentów.
 
 MVP nie przechowuje na bramce zadań offline. Kiedy zniknie VPN, agenci ponawiają połączenia, a centrala po 90 sekundach pokaże ich jako offline. Gdy wróci łączność, pobiorą oczekujące zadania. Cache oszczędza ponowne pobieranie instalatora przez VPN, ale nie omija autoryzacji z centralą.
+
+## Automatyczne wykrywanie i zabezpieczenia instalacji
+
+W pobranej paczce uruchom `./Install-Agent.ps1 -GatewayCertificateSha256 $gatewaySha256` — bez URL klient wyszuka bramkę w lokalnym LAN, zweryfikuje certyfikat i poprosi o potwierdzenie. Na większych sieciach podaj np. `-ScanCidr 192.168.20.0/24`. Hash otrzymaj niezależnie od administratora. Wymagane są zaufane CA i SAN IP bramki; skaner nie wysyła tokenu i nie ufa dowolnej odpowiedzi sieciowej. Pin pozostaje sprawdzany w dalszej pracy. Szczegóły i limity: [Proxmox / sieć i bezpieczeństwo](docs/PROXMOX.md#4-bramki-i-wykrywanie-na-stacjach).
+
+Instalator weryfikuje manifest SHA-256 paczki, odrzuca dodatkowe pliki, dowiązania i zapisywalny przez zwykłych użytkowników katalog docelowy. Manifest nie zastępuje podpisu cyfrowego: paczkę i jej hash pobieraj z zaufanego przebiegu Actions. Paczka MVP nie jest podpisana Authenticode. Bramka nasłuchuje wyłącznie na wybranym IP LAN; dodatkowo w aplikacji odrzuca źródła spoza skonfigurowanej prywatnej podsieci. Porty domyślne to 38443 (centrala) i 38444 (LAN), konfigurowalne — numer portu nie jest zabezpieczeniem.
 
 ## Rejestracja komputerów LAN
 
@@ -123,7 +132,7 @@ W panelu **Komputery → Zarejestruj komputer** wygeneruj osobny token dla każd
 ```powershell
 ./scripts/install-windows.ps1 -Component Agent `
   -PublishDirectory ./artifacts/windows/Agent `
-  -Endpoint https://gateway.firma.lan:7443
+  -Endpoint https://192.168.20.10:38444 -ServerCertificateSha256 $gatewaySha256
 ```
 
 Podaj token w ukrytym monicie. Agent nie wymaga VPN ani dostępu do internetu; instalatory pobiera z bramki po LAN. Usługa działa jako LocalSystem, stan i dziennik w `C:\ProgramData\PcMed\Agent` mają ACL System/administratorzy i ochronę DPAPI. Na końcówce nie otwieramy portów przychodzących.
@@ -135,7 +144,7 @@ Dla komputera z własnym VPN można pominąć bramkę:
 ```powershell
 ./scripts/install-windows.ps1 -Component Agent `
   -PublishDirectory ./artifacts/windows/Agent `
-  -Endpoint https://rmm.pcmed.lan -DirectVpn -ArtifactHosts rmm.pcmed.lan
+  -Endpoint https://172.20.0.8:38443 -DirectVpn -ArtifactHosts 172.20.0.8
 ```
 
 Na komputerze bramki może równolegle działać agent, jeśli sam komputer także ma być zarządzany. Są to osobne usługi i sekrety.

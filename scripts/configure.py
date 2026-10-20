@@ -12,7 +12,10 @@ def main():
     parser.add_argument("--hostname", required=True)
     parser.add_argument("--vpn-bind", required=True)
     parser.add_argument("--artifact-host", action="append", required=True)
+    parser.add_argument("--https-port", type=int, default=38443)
     args = parser.parse_args()
+    if args.https_port != 443 and not 1024 <= args.https_port <= 49151:
+        parser.error("HTTPS port must be 443 or in the configurable user-port range 1024..49151")
     hostname = args.hostname.lower()
     if not re.fullmatch(r"[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?", hostname):
         parser.error("Use a DNS hostname without scheme or port")
@@ -28,11 +31,11 @@ def main():
         parser.error("Configuration exists; update it deliberately instead of rotating live secrets")
     directory.mkdir(mode=0o700)
     (directory / "packages").mkdir()
-    origin = "https://" + hostname
+    origin = "https://" + hostname + (f":{args.https_port}" if args.https_port != 443 else "")
     realm = (root / "deploy" / "realm.template.json").read_text(encoding="utf-8").replace("${ORIGIN}", origin)
     (directory / "realm.json").write_text(json.dumps(json.loads(realm), indent=2), encoding="utf-8")
     (directory / "frontend-config.json").write_text(json.dumps({"authority": origin + "/realms/pcmed", "clientId": "pcmed-console"}), encoding="utf-8")
-    values = {"PCMED_HOSTNAME": hostname, "VPN_BIND_ADDRESS": str(address), "ARTIFACT_HOSTS": ",".join(hosts),
+    values = {"PCMED_HOSTNAME": hostname, "PCMED_ORIGIN": origin, "HTTPS_PORT": args.https_port, "VPN_BIND_ADDRESS": str(address), "ARTIFACT_HOSTS": ",".join(hosts),
               "DATABASE_PASSWORD": secrets.token_hex(32), "IDENTITY_DATABASE_PASSWORD": secrets.token_hex(32), "KEYCLOAK_ADMIN_PASSWORD": secrets.token_hex(32)}
     environment = root / ".env"
     environment.write_text("\n".join(f"{key}={value}" for key, value in values.items()) + "\n", encoding="utf-8")

@@ -1,5 +1,7 @@
 # Wdrożenie PC MED: centrala, bramka i komputery klientów
 
+**Proxmox:** rozpocznij od [PROXMOX.md](PROXMOX.md) — kreator oficjalnego Docker VM Community Scripts, następnie instalator centrali z zaporą Docker i usługą systemd. Sekcja 3 poniżej opisuje alternatywny, ręczny start Compose.
+
 ## 1. Co pobrać i gdzie są pliki EXE
 
 Kod jest w gałęzi **codex/rmm-mvp**, w [PR #1](https://github.com/Pawel-sp9pw/pcmed-rrm/pull/1). Dopóki PR nie zostanie scalony, domyślna gałąź `main` nie zawiera MVP. Do instalacji Windows nie trzeba kompilować źródeł.
@@ -16,6 +18,8 @@ Na GitHub otwórz **Actions → Verify MVP → najnowszy zakończony przebieg dl
 
 EXE agenta i bramki są programami usług Windows, a nie graficznymi instalatorami. Skrypty instalacyjne konfigurują je i rejestrują usługi. Wersja MVP wymaga zainstalowanych bibliotek .NET 10; nie jest samodzielnym instalatorem typu Setup.exe.
 
+Alternatywnie pobierz artefakt **windows-install-zip**, zawierający `pcmed-windows-mvp.zip` i jego plik `.sha256`. Rozpakuj artefakt, sprawdź hash ZIP przez `Get-FileHash -Algorithm SHA256`, porównaj z `.sha256`, a następnie rozpakuj właściwy ZIP do pustego katalogu `C:\PcMed`. Nie dopisuj plików do katalogu paczki przed instalacją — manifest celowo odrzuca pliki spoza dystrybucji. Sekrety i certyfikaty trzymaj w osobnym katalogu.
+
 **Centrala nie ma pliku EXE.** Zgodnie z architekturą FastAPI/PostgreSQL działa na serwerze Linux przez Docker Compose. Jej instalację opisuje następna sekcja.
 
 ## 2. Przygotuj adresy
@@ -24,19 +28,21 @@ Przykładowa sieć używana w tej instrukcji:
 
 | Ustawienie | Przykład — zastąp własną wartością |
 | --- | --- |
-| Nazwa centrali | `rmm.pcmed.lan` |
-| Adres VPN centrali | `10.44.0.1` |
+| Adres centrali | `172.20.0.8`, URL `https://172.20.0.8:38443` |
+| Adres VPN centrali | `172.20.0.8` |
 | Nazwa bramki w LAN klienta | `gateway.firma.lan` |
 | Adres LAN bramki | `192.168.20.10` |
 | Podsieć klienta | `192.168.20.0/24` |
-| Port centrali | TCP 443, dostępny przez VPN |
-| Port bramki | TCP 7443, dostępny z LAN klienta |
+| Port centrali | TCP 38443, dostępny przez VPN |
+| Port bramki | TCP 38444, dostępny z LAN klienta |
 
 Operator i bramka muszą rozwiązywać nazwę centrali i mieć do niej dostęp przez VPN. Stacje robocze muszą rozwiązywać nazwę bramki i mieć do niej dostęp po LAN. Stacje nie potrzebują własnego VPN ani internetu do pobierania zadań i instalatorów z bramki.
 
 ## 3. Instalacja centrali na Linux
 
 Potrzebne są Git, Python 3.12+, Docker Engine i Docker Compose v2. Dla Ubuntu użyj [oficjalnej instrukcji instalacji Docker Engine](https://docs.docker.com/engine/install/ubuntu/). Polecenia poniżej wykonuj jako administrator wdrożenia mający dostęp do Dockera.
+
+Ręczny start wymaga poprawnej zapory dla portu publikowanego przez Docker; samo UFW może nie wystarczyć. Wariant Proxmox automatyzuje to w [PROXMOX.md](PROXMOX.md).
 
 ### 3.1. Pobierz właściwą gałąź
 
@@ -53,16 +59,16 @@ Użyj adresu rzeczywiście przypisanego do interfejsu VPN serwera. Konfigurator 
 
 ```sh
 python3 scripts/configure.py \
-  --hostname rmm.pcmed.lan \
-  --vpn-bind 10.44.0.1 \
-  --artifact-host rmm.pcmed.lan
+  --hostname 172.20.0.8 \
+  --vpn-bind 172.20.0.8 \
+  --artifact-host 172.20.0.8
 ```
 
 Powstaną `.env` z losowymi hasłami oraz folder `secrets`. Nie uruchamiaj konfiguratora ponownie na istniejącej instalacji. Nie publikuj tych plików na GitHubie.
 
 ### 3.3. Przygotuj DNS i certyfikat centrali
 
-W prywatnym DNS ustaw `rmm.pcmed.lan → 10.44.0.1`. Przygotuj certyfikat serwerowy z SAN `rmm.pcmed.lan`, wystawiony przez firmowe, zaufane CA:
+Dla centrali `172.20.0.8` przygotuj certyfikat serwerowy z **SAN IP:172.20.0.8**, wystawiony przez firmowe, zaufane CA:
 
 - pełny łańcuch certyfikatu PEM: `secrets/tls.crt`;
 - klucz prywatny PEM bez hasła: `secrets/tls.key`.
@@ -83,14 +89,14 @@ docker compose ps -a
 docker compose logs --tail 100 migrate api keycloak
 ```
 
-Oczekiwany wynik: `migrate` zakończony kodem 0, `api` w stanie healthy, `web` i `keycloak` uruchomione, w logu Keycloak zaimportowany realm `pcmed`. Otwórz `https://rmm.pcmed.lan/` w przeglądarce przez VPN. Zapora serwera powinna dopuszczać TCP 443 wyłącznie z właściwej sieci VPN/zarządzania.
+Oczekiwany wynik: `migrate` zakończony kodem 0, `api` w stanie healthy, `web` i `keycloak` uruchomione, w logu Keycloak zaimportowany realm `pcmed`. Otwórz `https://172.20.0.8:38443/` w przeglądarce przez VPN. Zapora serwera powinna dopuszczać TCP 38443 wyłącznie z właściwej sieci VPN/zarządzania.
 
 ### 3.5. Utwórz konta i pierwszego klienta
 
 1. Lokalnie na serwerze odczytaj hasło `KEYCLOAK_ADMIN_PASSWORD` z `.env`. Nie przesyłaj całego pliku `.env` w zgłoszeniach.
-2. Otwórz `https://rmm.pcmed.lan/admin/`. Zaloguj się jako `bootstrap-admin`.
+2. Otwórz `https://172.20.0.8:38443/admin/`. Zaloguj się jako `bootstrap-admin`.
 3. Wybierz realm **pcmed**. Utwórz imienne konto operatora, ustaw mu hasło i przypisz rolę realm `platform_admin`. Konto bootstrap służy tylko administracji Keycloak, nie logowaniu do panelu PC MED.
-4. Zaloguj się nowym kontem na `https://rmm.pcmed.lan/`. Dodaj klienta, np. „Firma Kowalski”.
+4. Zaloguj się nowym kontem na `https://172.20.0.8:38443/`. Dodaj klienta, np. „Firma Kowalski”.
 5. Dla zwykłych operatorów utwórz w Keycloak grupę, której nazwą jest pełny identyfikator klienta ze stopki panelu. Dodaj do grupy użytkowników z rolą `operator`, `approver` albo `viewer`. `platform_admin` ma dostęp do wszystkich klientów.
 6. Do zatwierdzania instalatorów/skryptów przygotuj drugie imienne konto z rolą `approver`, przypisane do tego samego klienta.
 7. W konsoli Keycloak przejdź do realm **master**, utwórz własne imienne konto administracyjne i przypisz mu rolę realm `admin`. Sprawdź logowanie tym kontem do konsoli administracyjnej w osobnej sesji, a dopiero potem usuń `bootstrap-admin`. Konto z rolą `platform_admin` w realm `pcmed` i administrator Keycloak to dwa różne poziomy dostępu.
@@ -115,15 +121,17 @@ pwsh --version
 dotnet --list-runtimes
 ```
 
+Paczka zawiera `manifest.json`: instalator sprawdza odciski wszystkich plików, odrzuca dodatkowe pliki i dowiązania. Pobieraj paczkę tylko z zaufanego Actions i sprawdzaj jej zewnętrzny SHA-256. Manifest wykrywa uszkodzenia, ale sam nie uwierzytelnia autora; MVP nie ma podpisu Authenticode.
+
 Jeżeli obowiązują firmowe wymagania podpisywania skryptów, zastosuj je także do plików instalacyjnych. Nie wyłączaj globalnie polityki wykonania skryptów.
 
 ## 5. Instalacja serwera pośredniczącego u klienta
 
 ### 5.1. VPN, DNS i certyfikaty
 
-1. Na wybranym komputerze uruchom VPN do centrali. Sprawdź, że `https://rmm.pcmed.lan/` otwiera się bez błędu certyfikatu.
+1. Na wybranym komputerze uruchom VPN do centrali. Sprawdź, że `https://172.20.0.8:38443/` otwiera się bez błędu certyfikatu.
 2. Nadaj bramce stały adres LAN, np. `192.168.20.10`. W lokalnym DNS ustaw `gateway.firma.lan → 192.168.20.10`.
-3. Przygotuj PFX z certyfikatem serwera dla `gateway.firma.lan`, pełnym łańcuchem oraz kluczem prywatnym. W magazynie `LocalMachine\My` musi znajdować się certyfikat z kluczem dostępnym dla LocalSystem. Nazwa certyfikatu ma odpowiadać nazwie bramki; domyślna konfiguracja wyszukuje go po Subject.
+3. Przygotuj PFX z certyfikatem serwera z **SAN IP:192.168.20.10** oraz opcjonalnie DNS `gateway.firma.lan`, pełnym łańcuchem oraz kluczem prywatnym. W magazynie `LocalMachine\My` musi znajdować się certyfikat z kluczem dostępnym dla LocalSystem. Certyfikat musi mieć EKU serverAuth. Instalator wybiera go po konkretnym thumbprint i sprawdza ważność, zaufanie, klucz prywatny oraz SAN IP.
 4. Jeśli używasz własnego CA, zainstaluj publiczny certyfikat CA w magazynie zaufanych głównych urzędów **komputera lokalnego** bramki i każdej stacji roboczej. W domenie można rozesłać go przez GPO.
 
 Przykład importu, z własnymi ścieżkami:
@@ -131,7 +139,7 @@ Przykład importu, z własnymi ścieżkami:
 ```powershell
 Import-Certificate -FilePath C:\Certyfikaty\firmowe-ca.cer -CertStoreLocation Cert:\LocalMachine\Root
 $pfxPassword = Read-Host 'Hasło PFX bramki' -AsSecureString
-Import-PfxCertificate -FilePath C:\Certyfikaty\gateway.firma.lan.pfx -CertStoreLocation Cert:\LocalMachine\My -Password $pfxPassword
+$cert = Import-PfxCertificate -FilePath C:\Certyfikaty\gateway.firma.lan.pfx -CertStoreLocation Cert:\LocalMachine\My -Password $pfxPassword | Where-Object HasPrivateKey
 ```
 
 Pliku PFX z kluczem bramki nie kopiuj na stacje robocze — one potrzebują tylko publicznego certyfikatu CA.
@@ -146,32 +154,43 @@ W PowerShell 7 jako administrator, z katalogu paczki:
 
 ```powershell
 ./Install-Gateway.ps1 `
-  -CentralUrl https://rmm.pcmed.lan `
+  -CentralUrl https://172.20.0.8:38443 `
   -LanDnsName gateway.firma.lan `
   -LanSubnet 192.168.20.0/24 `
-  -ArtifactHosts rmm.pcmed.lan
+  -LanAddress 192.168.20.10 `
+  -CertificateThumbprint $cert.Thumbprint `
+  -ArtifactHosts 172.20.0.8
 ```
 
-Podaj token bramki w ukrytym monicie. Powstanie usługa `PcMedGateway` i reguła zapory TCP 7443, ograniczona do podanej podsieci oraz profilu Domain/Private. Program jest instalowany w `C:\Program Files\PcMed\Gateway`.
+Podaj token bramki w ukrytym monicie. Powstanie usługa `PcMedGateway` i reguła zapory TCP 38444, ograniczona do podanej podsieci oraz profilu Domain/Private. Program jest instalowany w `C:\Program Files\PcMed\Gateway`.
 
 ```powershell
 Get-Service PcMedGateway
 ```
 
-Oczekiwany stan: **Running**. Sam wpis bramki w panelu oznacza utworzenie danych dostępu, a nie dowód działania usługi. Łączność potwierdzi rejestracja agenta przez tę bramkę.
+Oczekiwany stan: **Running**. Przekaż administratorowi stacji publiczny odcisk certyfikatu (nie klucz prywatny):
+
+```powershell
+$gatewaySha256 = $cert.GetCertHashString([Security.Cryptography.HashAlgorithmName]::SHA256)
+$gatewaySha256
+```
+
+Ten odcisk SHA-256 należy przekazać niezależnym zaufanym kanałem. Thumbprint użyty do wyboru certyfikatu w magazynie to zwykle SHA-1 — nie należy ich mylić.
+
+ Sam wpis bramki w panelu oznacza utworzenie danych dostępu, a nie dowód działania usługi. Łączność potwierdzi rejestracja agenta przez tę bramkę.
 
 ## 6. Instalacja klienta na każdym komputerze
 
-1. Sprawdź zaufanie do CA i rozwiązywanie nazwy `gateway.firma.lan`.
+1. Sprawdź zaufanie do CA. Otrzymaj od administratora **SHA-256 certyfikatu bramki** przez zaufany kanał i przypisz go do `$gatewaySha256` (64 znaki). Nie jest to thumbprint SHA-1, token ani hash pliku EXE.
 2. W panelu wybierz właściwego klienta → **Komputery → Zarejestruj komputer**. Wygeneruj osobny token dla tej końcówki; ważny jest przez 15 minut i tylko do jednej rejestracji.
 3. Rozpakuj paczkę na końcówce. W PowerShell 7 jako administrator:
 
 ```powershell
 cd C:\PcMed
-./Install-Agent.ps1 -GatewayUrl https://gateway.firma.lan:7443
+./Install-Agent.ps1 -GatewayCertificateSha256 $gatewaySha256
 ```
 
-4. Podaj jednorazowy token w ukrytym monicie.
+4. Instalator wyszuka bramkę po HTTPS w lokalnym LAN i sprawdzi CA, SAN IP, ważność oraz oczekiwany SHA-256 certyfikatu. Przy jednym wyniku potwierdź adresem `TAK`, a następnie podaj jednorazowy token w ukrytym monicie. Przy dużej/wielokrotnej podsieci dodaj `-ScanCidr 192.168.20.0/24`. Możesz wskazać ręcznie `-GatewayUrl https://192.168.20.10:38444`; odcisk nadal jest wymagany.
 5. Sprawdź usługę:
 
 ```powershell
@@ -192,7 +211,7 @@ Każdy komputer wymaga własnej instalacji i własnego tokenu. Na komputerze bę
 1. Wyślij krótki komunikat do jednej końcówki z aktywnym modułem Notifier. Sprawdź okno Windows i wynik w Zadaniach.
 2. Dodaj prosty skrypt diagnostyczny do Biblioteki. Drugie konto przegląda treść i zatwierdza definicję; autor nie może zatwierdzić własnego kodu.
 3. Zleć go na jednej testowej końcówce. Sprawdź kod wyjścia i wynik przed próbą masowego wykonania.
-4. Aby przetestować instalator, skopiuj sprawdzony MSI/EXE na centralę do `secrets/packages/`. Użyj adresu `https://rmm.pcmed.lan/packages/nazwa.msi` i SHA-256 oryginalnego pliku. Bramka oraz centrala muszą dopuszczać ten host.
+4. Aby przetestować instalator, skopiuj sprawdzony MSI/EXE na centralę do `secrets/packages/`. Użyj adresu `https://172.20.0.8:38443/packages/nazwa.msi` i SHA-256 oryginalnego pliku. Bramka oraz centrala muszą dopuszczać ten host.
 5. Sprawdź zachowanie po utracie VPN i jego przywróceniu. Bramka potrzebuje centrali do autoryzacji; nie wykonuje zadań offline.
 
 ## 8. Gdy coś nie działa
@@ -206,7 +225,7 @@ Każdy komputer wymaga własnej instalacji i własnego tokenu. Na komputerze bę
 | Błąd HTTPS | Sprawdź nazwę DNS, SAN, ważność i łańcuch certyfikatu oraz CA w `LocalMachine\Root` |
 | Rejestracja zwraca 401 | Token wygasł/został już użyty albo token bramki został odwołany; wygeneruj właściwy nowy token |
 | Rejestracja zwraca 403 | Bramka i token rejestracji muszą należeć do tego samego klienta |
-| Komputer Offline | Sprawdź `PcMedAgent`, bramkę, VPN i port 7443; online wynika z heartbeat w ostatnich 90 s |
+| Komputer Offline | Sprawdź `PcMedAgent`, bramkę, VPN i port 38444; online wynika z heartbeat w ostatnich 90 s |
 | Komunikat nie pojawia się | Użytkownik musi być zalogowany i mieć uruchomiony `PcMed.Notifier.exe` |
 | Zadanie „Do weryfikacji” | Sprawdź skutki na końcówce; nie zakładaj, że można bezpiecznie wykonać je ponownie |
 

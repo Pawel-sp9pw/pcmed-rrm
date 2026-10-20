@@ -3,6 +3,22 @@ using System.Net.Http.Json;
 using Microsoft.AspNetCore.RateLimiting;
 using PcMed.Common;
 using PcMed.Gateway;
+using System.Security.Cryptography.X509Certificates;
+
+if (args.Contains("--check-certificate"))
+{
+    var certificateIndex = Array.IndexOf(args, "--thumbprint");
+    var addressIndex = Array.IndexOf(args, "--lan-address");
+    if (certificateIndex < 0 || addressIndex < 0) throw new InvalidOperationException("Certificate thumbprint and LAN address required.");
+    using var store = new X509Store(StoreName.My, StoreLocation.LocalMachine);
+    store.Open(OpenFlags.ReadOnly);
+    var matches = store.Certificates.Find(X509FindType.FindByThumbprint, args[certificateIndex + 1], true);
+    if (matches.Count != 1 || !matches[0].HasPrivateKey || !matches[0].MatchesHostname(args[addressIndex + 1], false, false) ||
+        !matches[0].Extensions.OfType<X509EnhancedKeyUsageExtension>().Any(extension => extension.EnhancedKeyUsages.Cast<System.Security.Cryptography.Oid>().Any(oid => oid.Value == "1.3.6.1.5.5.7.3.1")))
+        throw new InvalidOperationException("Use a trusted, valid serverAuth certificate with private key and the gateway LAN IPv4 in its SAN.");
+    Console.WriteLine(matches[0].GetCertHashString(System.Security.Cryptography.HashAlgorithmName.SHA256));
+    return;
+}
 
 var builder = WebApplication.CreateBuilder(new WebApplicationOptions { Args = args, ContentRootPath = AppContext.BaseDirectory });
 builder.Host.UseWindowsService(options => options.ServiceName = "PcMedGateway");
@@ -11,6 +27,10 @@ var upstream = Policy.HttpsEndpoint(options.Upstream);
 var secrets = new SecretFile(options.StateDirectory);
 if (args.Contains("--provision"))
 {
+    if (secrets.Load<Credential>("credential.bin") is not null) throw new InvalidOperationException("Already provisioned. Revoke the old gateway credential deliberately before changing it.");
+    using var client = new HttpClient(SecureTransport.Handler(options.UpstreamCertificateSha256)) { BaseAddress = upstream, Timeout = TimeSpan.FromSeconds(30) };
+    using var preflight = await client.GetAsync("realms/pcmed/.well-known/openid-configuration");
+    preflight.EnsureSuccessStatusCode();
     secrets.Save("credential.bin", new Credential(SecretFile.ReadToken()));
     Console.WriteLine("Gateway credential saved with machine protection.");
     return;
@@ -18,6 +38,14 @@ if (args.Contains("--provision"))
 var credential = secrets.Load<Credential>("credential.bin") ?? throw new InvalidOperationException("Run --provision as administrator first.");
 builder.WebHost.ConfigureKestrel(server =>
 {
+    if (!string.IsNullOrWhiteSpace(options.ServerCertificateThumbprint))
+    {
+        using var store = new X509Store(StoreName.My, StoreLocation.LocalMachine);
+        store.Open(OpenFlags.ReadOnly);
+        var certificates = store.Certificates.Find(X509FindType.FindByThumbprint, options.ServerCertificateThumbprint, true);
+        if (certificates.Count != 1 || !certificates[0].HasPrivateKey) throw new InvalidOperationException("Configured TLS certificate is unavailable or invalid.");
+        server.ConfigureHttpsDefaults(https => https.ServerCertificate = certificates[0]);
+    }
     server.Limits.MaxRequestBodySize = 262144;
     server.Limits.MaxConcurrentConnections = 200;
     server.Limits.RequestHeadersTimeout = TimeSpan.FromSeconds(15);
@@ -27,16 +55,18 @@ builder.Services.AddRateLimiter(configuration => configuration.AddConcurrencyLim
     limit.PermitLimit = 64;
     limit.QueueLimit = 0;
 }));
-builder.Services.AddSingleton(new HttpClient(new HttpClientHandler { AllowAutoRedirect = false }) { BaseAddress = upstream, Timeout = TimeSpan.FromSeconds(30) });
+builder.Services.AddSingleton(new HttpClient(SecureTransport.Handler(options.UpstreamCertificateSha256)) { BaseAddress = upstream, Timeout = TimeSpan.FromSeconds(30) });
 builder.Services.AddSingleton(new ArtifactCache(options, secrets));
 var app = builder.Build();
 app.Use(async (context, next) =>
 {
     context.Response.Headers.CacheControl = "no-store";
     if (!context.Request.IsHttps) { context.Response.StatusCode = 400; return; }
+    if (!LanPolicy.Contains(options.AllowedSubnet, context.Connection.RemoteIpAddress)) { context.Response.StatusCode = 403; return; }
     await next(context);
 });
 app.UseRateLimiter();
+app.MapGet("/.well-known/pcmed-gateway", () => Results.Json(new { service = "pcmed-gateway", protocol = 1 })).RequireRateLimiting("relay");
 
 HttpRequestMessage UpstreamRequest(HttpContext context, string path, HttpMethod method)
 {
@@ -92,7 +122,10 @@ namespace PcMed.Gateway
 {
     public sealed class GatewayOptions
     {
-        public string Upstream { get; set; } = "https://rmm.example.test";
+        public string Upstream { get; set; } = "https://172.20.0.8:38443";
+        public string? ServerCertificateThumbprint { get; set; }
+        public string? UpstreamCertificateSha256 { get; set; }
+        public string AllowedSubnet { get; set; } = "";
         public string StateDirectory { get; set; } = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "PcMed", "Gateway");
         public string[] ArtifactHosts { get; set; } = [];
         public long MaxArtifactBytes { get; set; } = 536870912;
