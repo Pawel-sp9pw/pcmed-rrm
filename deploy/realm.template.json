@@ -1,0 +1,39 @@
+{
+  "realm": "pcmed",
+  "enabled": true,
+  "defaultSignatureAlgorithm": "RS256",
+  "sslRequired": "external",
+  "registrationAllowed": false,
+  "resetPasswordAllowed": false,
+  "rememberMe": false,
+  "accessTokenLifespan": 300,
+  "ssoSessionIdleTimeout": 1800,
+  "ssoSessionMaxLifespan": 28800,
+  "bruteForceProtected": true,
+  "permanentLockout": false,
+  "failureFactor": 5,
+  "passwordPolicy": "length(14) and notUsername(undefined) and passwordHistory(5)",
+  "roles": { "realm": [{"name":"platform_admin"},{"name":"operator"},{"name":"approver"},{"name":"viewer"}] },
+  "clients": [
+    {
+      "clientId": "pcmed-console",
+      "name": "PC MED Console",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "implicitFlowEnabled": false,
+      "serviceAccountsEnabled": false,
+      "fullScopeAllowed": true,
+      "redirectUris": ["${ORIGIN}/"],
+      "webOrigins": ["${ORIGIN}"],
+      "attributes": { "pkce.code.challenge.method": "S256", "post.logout.redirect.uris": "${ORIGIN}/" },
+      "defaultClientScopes": ["web-origins", "basic", "roles", "profile", "email"],
+      "protocolMappers": [
+        { "name":"pcmed-audience", "protocol":"openid-connect", "protocolMapper":"oidc-audience-mapper", "config": {"included.custom.audience":"pcmed-api","access.token.claim":"true","id.token.claim":"false"} },
+        { "name":"client-memberships", "protocol":"openid-connect", "protocolMapper":"oidc-group-membership-mapper", "config": {"claim.name":"tenant_ids","full.path":"false","access.token.claim":"true","id.token.claim":"false","userinfo.token.claim":"false"} }
+      ]
+    }
+  ]
+}
