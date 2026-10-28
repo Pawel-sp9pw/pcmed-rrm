@@ -95,7 +95,7 @@ jobs:
           python deploy/proxmox/tls.py --directory secrets/test-issuer --hostname rmm.test --address "$ADDRESS" --crl-url "http://$ADDRESS:38445/ca.crl"
           cp secrets/test-issuer/server.crt secrets/tls.crt
           cp secrets/test-issuer/server.key secrets/tls.key
-          cp secrets/test-issuer/ca.crl secrets/pki-public/ca.crl
+          install -m 644 secrets/test-issuer/ca.crl secrets/pki-public/ca.crl
           docker compose config --quiet
           docker compose up --build --wait --wait-timeout 300
           for attempt in $(seq 1 60); do
