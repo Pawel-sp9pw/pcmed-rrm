@@ -1,6 +1,6 @@
 # PC MED RMM — MVP
 
-**Proxmox Community Scripts:** [utworzenie VM i instalacja centrali 172.20.0.8](docs/PROXMOX.md).
+**Proxmox — jeden instalator:** [automatyczne utworzenie LXC i pełna instalacja centrali 172.20.0.8](docs/PROXMOX.md). Skrypt pyta o sieć/storage, sam instaluje kontener, Docker i PC MED, konfiguruje HTTPS oraz pierwsze konto, uruchamia autostart i sprawdza gotowość. Bez ręcznego wykonywania poleceń w kontenerze.
 
 **Instalacja krok po kroku:** [centrala Linux, serwer pośredniczący Windows i komputery klientów](docs/WDROZENIE.md).
 
@@ -121,7 +121,7 @@ MVP nie przechowuje na bramce zadań offline. Kiedy zniknie VPN, agenci ponawiaj
 
 ## Automatyczne wykrywanie i zabezpieczenia instalacji
 
-W pobranej paczce uruchom `./Install-Agent.ps1 -GatewayCertificateSha256 $gatewaySha256` — bez URL klient wyszuka bramkę w lokalnym LAN, zweryfikuje certyfikat i poprosi o potwierdzenie. Na większych sieciach podaj np. `-ScanCidr 192.168.20.0/24`. Hash otrzymaj niezależnie od administratora. Wymagane są zaufane CA i SAN IP bramki; skaner nie wysyła tokenu i nie ufa dowolnej odpowiedzi sieciowej. Pin pozostaje sprawdzany w dalszej pracy. Szczegóły i limity: [Proxmox / sieć i bezpieczeństwo](docs/PROXMOX.md#4-bramki-i-wykrywanie-na-stacjach).
+W pobranej paczce uruchom `./Install-Agent.ps1 -GatewayCertificateSha256 $gatewaySha256` — bez URL klient wyszuka bramkę w lokalnym LAN, zweryfikuje certyfikat i poprosi o potwierdzenie. Na większych sieciach podaj np. `-ScanCidr 192.168.20.0/24`. Hash otrzymaj niezależnie od administratora. Wymagane są zaufane CA i SAN IP bramki; skaner nie wysyła tokenu i nie ufa dowolnej odpowiedzi sieciowej. Pin pozostaje sprawdzany w dalszej pracy. Szczegóły i limity: [Proxmox / sieć i bezpieczeństwo](docs/PROXMOX.md).
 
 Instalator weryfikuje manifest SHA-256 paczki, odrzuca dodatkowe pliki, dowiązania i zapisywalny przez zwykłych użytkowników katalog docelowy. Manifest nie zastępuje podpisu cyfrowego: paczkę i jej hash pobieraj z zaufanego przebiegu Actions. Paczka MVP nie jest podpisana Authenticode. Bramka nasłuchuje wyłącznie na wybranym IP LAN; dodatkowo w aplikacji odrzuca źródła spoza skonfigurowanej prywatnej podsieci. Porty domyślne to 38443 (centrala) i 38444 (LAN), konfigurowalne — numer portu nie jest zabezpieczeniem.
 

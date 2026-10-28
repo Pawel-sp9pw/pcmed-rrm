@@ -1,91 +1,81 @@
-# Proxmox Community Scripts → PC MED
+# Proxmox: automatyczna instalacja PC MED w LXC
 
-To są **dwa wykonywalne etapy instalacji**, nie deklaracja, że VM została już utworzona. Nie mamy dostępu administracyjnego do Twojego Proxmox. Centrala ma adres **172.20.0.8**, z którym bramki klientów łączą się przez VPN.
+## 1. Jedno polecenie na hoście Proxmox
 
-## 1. Nowa VM Docker na Proxmox
+Jako **root w konsoli hosta Proxmox VE** uruchom:
 
-Na **hoście Proxmox**, jako root:
+~~~sh
+curl -fsSL https://raw.githubusercontent.com/Pawel-sp9pw/pcmed-rrm/codex/rmm-mvp/deploy/proxmox/install-lxc.sh -o /root/pcmed-install-lxc.sh && bash /root/pcmed-install-lxc.sh
+~~~
 
-```sh
-git clone --branch codex/rmm-mvp --single-branch https://github.com/Pawel-sp9pw/pcmed-rrm.git
-cd pcmed-rrm
-less deploy/proxmox/create-vm.sh
-bash deploy/proxmox/create-vm.sh
-```
+To jest jedna pełna instalacja, nie instrukcja wykonania drugiego etapu w kontenerze. **Nie trzeba ręcznie tworzyć LXC, instalować zależności, generować certyfikatów ani uruchamiać usług.** Nie trzeba też wcześniej klonować repozytorium.
 
-Wrapper pobiera i sprawdza SHA-256 oficjalnego [Docker VM z Proxmox Community Scripts](https://github.com/community-scripts/ProxmoxVE/blob/764e4232ba28afd07503bb4ab5e69c437eaa3f53/vm/docker-vm.sh), a po wpisaniu `CREATE` uruchamia jego kreator. Nie instaluje Dockera bezpośrednio na hoście PVE ani nie tworzy uprzywilejowanego kontenera. Community Scripts to zewnętrzny projekt, **PC MED nie jest oficjalnym skryptem w jego katalogu**.
+Skrypt pobiera kod z gałęzi `codex/rmm-mvp`, dopóki [PR #1](https://github.com/Pawel-sp9pw/pcmed-rrm/pull/1) nie jest scalony. Uruchamia kod jako root, więc używaj wyłącznie zaufanego repozytorium; [kod instalatora](../deploy/proxmox/install-lxc.sh) jest dostępny do przeglądu. Poprzednia nazwa `create-vm.sh` jest tylko przekierowaniem do tego samego instalatora LXC.
 
-Przypięte wersje: ProxmoxVE `764e4232ba28afd07503bb4ab5e69c437eaa3f53`, core `5888304899562faec368dfec7648edbe8c417020`. Kontrola SHA dotyczy głównego skryptu; core ma przypięte adresy wersji. Obrazy systemu, repozytoria pakietów i instalator Docker są nadal pobierane przez projekt upstream — nie jest to w pełni odtwarzalny/offline łańcuch dostaw. Przejrzyj zewnętrzny kod przed wykonaniem jako root.
+## 2. O co zapyta instalator
 
-W kreatorze:
+- Numer nowego kontenera (domyślnie wolny CTID z klastra), CPU/RAM/dysk: domyślnie **4 CPU / 8192 MB / 40 GB**.
+- **Adres centrali z faktycznym prefiksem**, np. `172.20.0.8/24`, brama i DNS. Adres centrali to **172.20.0.8**, ale prefiks i brama muszą odpowiadać Twojej sieci — nie zostały podane i skrypt ich nie zgaduje.
+- Most sieciowy Proxmox, np. `vmbr0`, storage dysku LXC, np. `local-lvm`, oraz storage szablonów, np. `local`.
+- Dozwolone sieci źródłowe VPN i zarządzania. Uwzględnij również sieć/adres hosta Proxmox, z którego instalator sprawdza gotowość panelu. Nigdy `0.0.0.0/0`.
+- Nazwę kontenera i pierwszego operatora (domyślnie `pcmed-admin`), port HTTPS (domyślnie **38443**) i port listy unieważnień certyfikatów CRL (domyślnie **38445**).
+- TLS: `auto` generuje własny CA i certyfikat; `import` pyta o lokalne pliki PEM certyfikatu, klucza i zaufanego CA na hoście, a potem sam kopiuje je do kontenera. Certyfikat importowany musi mieć **SAN IP:172.20.0.8** i pełny łańcuch.
 
-- **Advanced**, Debian 13, minimum **4 CPU / 8 GB RAM / 40 GB dysku**; więcej miejsca na instalatory i kopie.
-- Wybierz własne VMID, storage i bridge/VLAN.
-- **Cloud-Init włączony**, imienny użytkownik i klucz SSH. Nie używaj wariantu nocloud z automatycznym logowaniem root.
-- Adres **172.20.0.8 z rzeczywistym prefiksem**, właściwa brama i DNS. Prefiks, brama i bridge nie zostały podane — nie zakładamy ich wartości. Adres musi być wolny.
-- Zapewnij trasę z VPN klientów do VM oraz dostęp do repozytoriów podczas instalacji. Nie wystawiaj panelu w internecie.
+Po podsumowaniu wpisz `INSTALUJ`. Dalej instalator pracuje bez pytań i bez ręcznego wchodzenia do kontenera. Potrzebny jest aktualny, obsługiwany Proxmox/LXC, wolny adres i dostęp do repozytoriów podczas instalacji. Ewentualna zapora Proxmox lub routera musi przepuszczać wybrane porty z dozwolonych sieci.
 
-Poczekaj na zakończenie instalacji Docker w VM. W razie potrzeby sprawdź `/var/log/install-docker.log`. Zaloguj się do **VM**, nie do hosta PVE.
+## 3. Co zrobi sam
 
-## 2. Instalacja centrali wewnątrz VM
+1. Sprawdzi parametry, dostępność CTID w klastrze, most i typy storage; nie nadpisuje istniejącego kontenera ani plików poprzedniej instalacji.
+2. Utworzy **nieuprzywilejowany LXC Debian 13** z nesting/keyctl przez przypięty [Docker LXC Community Scripts](https://github.com/community-scripts/ProxmoxVE/blob/4a742048372462aa93b2e1246603604876c8f9c8/ct/docker.sh) w trybie bezobsługowym. Nie wystawia gniazda Docker TCP ani nie wyłącza AppArmor.
+3. Sprawdzi znacznik tożsamości, adres i nieuprzywilejowany tryb faktycznie utworzonego CT. Odmówi instalowania aplikacji w innym kontenerze.
+4. Przez `pct exec` zainstaluje wymagane pakiety. Przeniesie do CT dokładnie ten sam commit aplikacji przez lokalny Git bundle, bez drugiego pobierania innej wersji kodu.
+5. Wygeneruje/importuje TLS, losowe hasła baz i Keycloak, pierwsze konto operatora z obowiązkową zmianą hasła oraz konfigurację panelu, API i PostgreSQL.
+6. Skonfiguruje zaporę `DOCKER-USER` wyłącznie dla wybranego prywatnego adresu i portów, uruchomi migracje, zbuduje i uruchomi stos Compose jako `pcmed-stack.service`.
+7. Włączy autostart kontenera oraz usługi. W trybie automatycznego CA włączy także codzienne odnawianie CRL.
+8. Sprawdzi stan systemd oraz **HTTPS z weryfikacją CA, panel, issuer OIDC, klucze RS256 i odrzucenie niezalogowanego API**. Sprawdzenie wykona w CT i z hosta Proxmox; sprawdzi również dostępność i podpis CRL.
 
-Poniższe polecenia wykonuj jako root **w VM Docker**:
+**`GOTOWE` pojawia się dopiero po poprawnym przejściu kontroli.** Błąd któregokolwiek etapu kończy instalator kodem niezerowym, zamiast udawać uruchomienie usługi.
 
-```sh
-apt-get update
-apt-get install -y git python3 openssl curl ca-certificates iproute2 iptables
-docker version
-docker compose version
-git clone --branch codex/rmm-mvp --single-branch https://github.com/Pawel-sp9pw/pcmed-rrm.git /root/pcmed-source
-cd /root/pcmed-source
-```
+Nie wymagamy uprzywilejowanego LXC, `unconfined`, wyłączenia seccomp ani globalnej zmiany polityki AppArmor. Jeśli Docker nie może działać w nesting na danej wersji hosta, instalacja zatrzyma się z diagnostyką — nie obniży automatycznie izolacji.
 
-Przygotuj certyfikat z firmowego CA, przeznaczony do TLS serwera, z **SAN IP:172.20.0.8**. Pełny łańcuch PEM zapisz np. jako `/root/certyfikaty/centrala.crt`, klucz PEM bez hasła jako `/root/certyfikaty/centrala.key`. Klucz pozostaje wyłącznie na serwerze. Publiczny certyfikat CA rozprowadź do operatorów i `LocalMachine\Root` bramek Windows. Przy własnym PKI zadbaj również o dostępność CRL/OCSP.
+## 4. Wynik i pierwsze logowanie
 
-Uruchom instalator z **rzeczywistymi** sieciami źródłowymi VPN i zarządzania. Wartości poniżej zastąp swoimi, nie otwieraj `0.0.0.0/0`:
+Dla przykładowego CTID `120`:
 
-```sh
-bash deploy/proxmox/install-server.sh \
-  --tls-cert /root/certyfikaty/centrala.crt \
-  --tls-key /root/certyfikaty/centrala.key \
-  --allow-cidr 10.44.0.0/24 \
-  --allow-cidr 172.20.0.0/24
-```
+| Element | Wynik |
+| --- | --- |
+| Panel | `https://172.20.0.8:38443` |
+| Konto i pierwsze hasło | na hoście: `/root/pcmed-lxc-120-first-login.json`, tylko root |
+| Publiczny CA dla operatorów/bramek | na hoście: `/root/pcmed-lxc-120-ca.crt` |
+| Stan instalacji i hasło konsoli CT | na hoście: `/root/pcmed-lxc-120-install.json`, tylko root |
+| Chroniony log | na hoście: `/var/log/pcmed-lxc-120-pcmed-install-….log` |
+| Aplikacja | w CT: `/opt/pcmed-rmm` |
+| Usługa i sekrety | w CT: `pcmed-stack.service`, `/etc/pcmed` i `/opt/pcmed-rmm/.env` |
 
-Adresy sieci na końcu to **przykłady**, nie wykryta konfiguracja. Domyślnie `--bind 172.20.0.8 --hostname 172.20.0.8 --port 38443`. Dla własnego DNS można użyć `--hostname rmm.pcmed.lan`, z odpowiednim SAN i rekordem DNS na 172.20.0.8; wszystkie bramki muszą wtedy używać tego samego URL z portem.
+Instalator podaje rzeczywiste ścieżki na końcu, nie wypisuje haseł na ekran. Zaimportuj **publiczny** CA do zaufanego magazynu przeglądarki i `LocalMachine\\Root` bramek Windows. Nie rozprowadzaj klucza CA ani plików z hasłami. Po pierwszym logowaniu zmień hasło i utwórz klientów oraz imienne konta; MFA pozostaje opcjonalne. Pierwszy operator aplikacji i administrator konsoli Keycloak to osobne konta.
 
-Instalator sprawdza lokalny adres, wolny port, ważność certyfikatu i zgodność klucza, odmawia nadpisywania instalacji, kopiuje zatwierdzony lokalny commit do `/opt/pcmed-rmm`, generuje losowe sekrety i uruchamia usługę `pcmed-stack`. Port HTTPS jest publikowany **tylko na 172.20.0.8**; bazy pozostają wewnętrzne.
+Automatyczny CA ma ważność 10 lat, certyfikat serwera 397 dni. Zaplanuj jego wymianę przed wygaśnięciem i aktualizację ewentualnych pinów; ten instalator nie wykonuje automatycznej rotacji pinowanych certyfikatów. Klucz CA pozostaje w CT w `/etc/pcmed/pki/issued`, dostępnym tylko dla root — uwzględnij go w zaszyfrowanej kopii.
 
-Zapora filtruje port publikowany przez Dockera w `DOCKER-USER` po oryginalnym adresie i porcie docelowym (DNAT). Nie polegamy wyłącznie na UFW. Reguły dotyczą tylko PC MED i są odtwarzane przy starcie systemd/Docker. Wymagany jest standardowy backend Docker **iptables**, nie eksperymentalny backend nftables. Dodatkowa zapora PVE/VPN musi dopuszczać TCP 38443 z wybranych sieci. Jeśli coś blokuje start, sprawdź dziennik; nie usuwaj kontroli zapory.
+CRL to **podpisane dane publiczne**, a nie panel czy API. Tryb `auto` publikuje wyłącznie `/ca.crl` przez HTTP na TCP 38445, tylko na adresie centrali i dla tych samych dozwolonych sieci. Pozostałe ścieżki zwracają 404, a metody zapisu są zabronione. CRL ma ważność 7 dni i jest odnawiana codziennie przez `pcmed-crl.timer`; serwer WWW nie dostaje klucza CA. Dzięki temu Windows zachowuje włączone sprawdzanie unieważnienia certyfikatów. Nie blokuj tego portu na trasie bramki–centrala. W trybie `import` port CRL nie jest publikowany; dostępność CRL/OCSP zapewnia wystawca Twojego certyfikatu.
 
-## 3. Sprawdzenie i konta
+Bramki klientów nadal korzystają z lokalnego HTTPS TCP **38444**, a końcówki nie mają portów przychodzących. Instalacja i wykrywanie bramki: [WDROZENIE.md](WDROZENIE.md#5-instalacja-serwera-pośredniczącego-u-klienta). Porty są konfigurowalne; ich numer nie jest zabezpieczeniem.
 
-```sh
-systemctl status pcmed-stack --no-pager
-journalctl -u pcmed-stack -n 80 --no-pager
-cd /opt/pcmed-rmm
-docker compose ps -a
-curl --fail --cacert /root/certyfikaty/firmowe-ca.crt \
-  https://172.20.0.8:38443/realms/pcmed/.well-known/openid-configuration
-```
+## 5. W pełni bezobsługowe uruchomienie
 
-Oczekiwany issuer: `https://172.20.0.8:38443/realms/pcmed`. Otwórz **https://172.20.0.8:38443**, następnie skonfiguruj konta i klientów według [WDROZENIE.md, sekcja 3.5](WDROZENIE.md#35-utwórz-konta-i-pierwszego-klienta). Hasło bootstrap jest w `/opt/pcmed-rmm/.env`, tylko dla administratora. MFA pozostaje opcjonalne. Nie udostępniaj `.env`, kluczy ani kopii bazy.
+Można przekazać parametry zamiast odpowiadać na pytania. Poniższe wartości sieciowe to **przykład**, zastąp je rzeczywistymi:
 
-## 4. Bramki i wykrywanie na stacjach
+~~~sh
+bash /root/pcmed-install-lxc.sh --ctid 120 --address-cidr 172.20.0.8/24 --gateway 172.20.0.1 --dns '172.20.0.1 1.1.1.1' --bridge vmbr0 --storage local-lvm --template-storage local --allow-cidr 172.20.0.0/24 --allow-cidr 10.44.0.0/24 --yes
+~~~
 
-- Centrala **TCP 38443** przez VPN; bramka **TCP 38444** tylko na wskazanym LAN IPv4 i podsieci klienta; agenci **bez portów przychodzących**.
-- Porty 38443/38444 mieszczą się w nieprzypisanym zakresie 38423–38461 rejestru [IANA](https://www.iana.org/assignments/service-names-port-numbers/service-names-port-numbers.xhtml) sprawdzonym 20.10.2026. To zmniejsza ryzyko kolizji z przypisanymi usługami, **nie zapewnia bezpieczeństwa ani wyłączności**. Oba porty są konfigurowalne; instalatory kontrolują zajętość portu nasłuchu.
-- Certyfikat bramki musi mieć EKU **serverAuth**, klucz prywatny i **SAN IP jej stałego adresu LAN** (np. IP:192.168.20.10); opcjonalnie także nazwę DNS. Instalacja wybiera konkretny certyfikat po thumbprint, a nie pierwszy pasujący Subject.
-- `Install-Agent.ps1` bez `GatewayUrl` skanuje aktywny lokalny Ethernet/Wi-Fi: tylko RFC1918 IPv4, maks. 1022 adresy, 32 połączenia równolegle, jeden port, limit całego skanu 90 s. Nie skanuje całego VPN ani internetu; większe/wielokrotne sieci wymagają `-ScanCidr` obejmującego adres stacji.
-- Skan nie wysyła sekretów. Wymaga SHA-256 certyfikatu otrzymanego niezależnie od administratora oraz prawidłowego zaufania CA, SAN i ważności. Sama odpowiedź „jestem bramką” nie wystarcza. Przy jednej pasującej bramce użytkownik wpisuje `TAK`; zero lub wiele wyników oznacza konieczność jawnego URL.
-- Pin certyfikatu zostaje w konfiguracji i jest sprawdzany przy dalszych połączeniach. Nie wyłączamy walidacji TLS. Wymiana certyfikatu wymaga zaplanowanej aktualizacji pinów na agentach.
+`--yes` przyjmuje domyślne zasoby/TLS/konto i nie otwiera pytań; brak wymaganej wartości kończy się błędem przed tworzeniem CT. Dla importu dodaj `--tls-mode import --tls-cert /root/centrala.crt --tls-key /root/centrala.key --trusted-ca /root/firmowe-ca.crt`. Pełna lista: `python3 deploy/proxmox/lxc.py --help` w pobranym repozytorium.
 
-Dokładne polecenia instalacji bramki i końcówek: [WDROZENIE.md](WDROZENIE.md#5-instalacja-serwera-pośredniczącego-u-klienta).
+## 6. Błędy, kopie i granice weryfikacji
 
-## 5. Utrzymanie i istniejące instalacje
+Przerwana instalacja **nie usuwa kontenera ani danych**. Zachowaj log i prywatny plik stanu; nie uruchamiaj w ciemno ponownego tworzenia z tym samym CTID. Najpierw ustal etap i przyczynę. Istniejące instalacje nie są automatycznie migrowane ani resetowane.
 
-Kopie muszą obejmować oba PostgreSQL (aplikacja i Keycloak), `/opt/pcmed-rmm/.env`, `secrets/`, `/etc/pcmed/firewall.json` i certyfikaty; szyfruj je i przetestuj odtworzenie poza środowiskiem operacyjnym. Snapshot VM nie zastępuje sprawdzonej kopii baz.
+Kopie powinny objąć oba PostgreSQL (aplikacja i Keycloak), `.env`, `secrets/`, `/etc/pcmed` oraz prywatne pliki instalacyjne na hoście. Szyfruj kopie i sprawdź odtworzenie; backup samego kontenera nie zastępuje testu odtwarzania baz.
 
-Na wcześniejszej instalacji nie uruchamiaj ponownie konfiguratora. Zmiana portu/hosta zmienia issuer OIDC: uzgodnij przerwę, wykonaj kopię, ustaw `PCMED_ORIGIN` i `HTTPS_PORT` w `.env`, a także adresy klienta Keycloak, konfigurację panelu i bramek, DNS/certyfikaty i zapory. Import realm nie aktualizuje istniejącego realm automatycznie. To nie jest automatyczny migrator starej instalacji.
+Przypięte Community Scripts: ProxmoxVE `4a742048372462aa93b2e1246603604876c8f9c8`, core `a14f2d451d1b358673b5f89e170f66bd6631e249`; główny skrypt Docker LXC jest dodatkowo weryfikowany SHA-256. Obrazy OS i repozytoria pakietów nadal pochodzą z upstream, nie jest to instalacja offline ani w pełni odtwarzalny łańcuch dostaw. PC MED nie jest oficjalną pozycją w katalogu Community Scripts.
 
-CI sprawdza kod, reguły i uruchomienie stosu Compose. Utworzenie VM na rzeczywistym Proxmox, routing VPN, certyfikaty, wykrywanie w docelowym LAN i test jednej końcówki pozostają obowiązkowymi krokami odbioru. Nie wykonano ich na Twojej infrastrukturze.
+Testy automatyczne obejmują symulowany pełny przebieg poleceń Proxmox, błędy i ochronę istniejących kontenerów, generowanie TLS/CRL, rzeczywiste sprawdzanie unieważnienia w Windows oraz start całego stosu Compose z HTTPS/OIDC. **Nie wykonano rzeczywistego utworzenia LXC na Twoim Proxmox** — do tego nadal potrzebny jest dostęp do hosta. Nie deklarujemy wdrożenia produkcyjnego bez takiej weryfikacji.

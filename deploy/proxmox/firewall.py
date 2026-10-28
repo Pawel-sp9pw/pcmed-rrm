@@ -15,10 +15,18 @@ def rules(configuration):
     private = [ipaddress.IPv4Network(value) for value in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16")]
     if any(not any(network.subnet_of(block) for block in private) for network in networks):
         raise ValueError("Only explicit private management/VPN source networks may be allowed")
-    match = f"-p tcp -m conntrack --ctorigdst {address} --ctorigdstport {port} --ctdir ORIGINAL"
     lines = ["*filter", ":PCMED-IN - [0:0]", "-F PCMED-IN"]
-    lines.extend(f"-A PCMED-IN {match} -s {network} -j RETURN" for network in networks)
-    lines.extend([f"-A PCMED-IN {match} -j DROP", "-A PCMED-IN -j RETURN", "COMMIT", ""])
+    ports = [port]
+    if configuration.get("crl_port"):
+        crl_port = int(configuration["crl_port"])
+        if not 1024 <= crl_port <= 49151 or crl_port == port:
+            raise ValueError("Invalid or colliding CRL port")
+        ports.append(crl_port)
+    for published_port in ports:
+        match = f"-p tcp -m conntrack --ctorigdst {address} --ctorigdstport {published_port} --ctdir ORIGINAL"
+        lines.extend(f"-A PCMED-IN {match} -s {network} -j RETURN" for network in networks)
+        lines.append(f"-A PCMED-IN {match} -j DROP")
+    lines.extend(["-A PCMED-IN -j RETURN", "COMMIT", ""])
     return "\n".join(lines)
 
 

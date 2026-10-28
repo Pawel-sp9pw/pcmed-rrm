@@ -13,9 +13,9 @@ jobs:
       - uses: actions/setup-python@v5
         with: { python-version: '3.12' }
       - run: python -m unittest discover -s scripts/tests -v
-      - run: bash -n deploy/proxmox/create-vm.sh && bash -n deploy/proxmox/install-server.sh
+      - run: for script in deploy/proxmox/*.sh; do bash -n "$script"; done
       - run: |
-          printf '%s' '{"address":"172.20.0.8","port":38443,"allowed_cidrs":["10.44.0.0/24"]}' > /tmp/pcmed-firewall.json
+          printf '%s' '{"address":"172.20.0.8","port":38443,"crl_port":38445,"allowed_cidrs":["10.44.0.0/24"]}' > /tmp/pcmed-firewall.json
           python deploy/proxmox/firewall.py --config /tmp/pcmed-firewall.json --check > /tmp/pcmed-firewall.rules
           sudo iptables-restore --test --noflush < /tmp/pcmed-firewall.rules
   backend:
@@ -62,6 +62,11 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
         with: { dotnet-version: '10.0.x' }
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - run: |
+          $env:PATH = 'C:\Program Files\Git\usr\bin;' + $env:PATH
+          python -m unittest discover -s ../scripts/tests -v
       - run: dotnet restore PcMed.sln --locked-mode
       - run: dotnet test PcMed.sln -c Release --no-restore
       - run: ../scripts/publish-windows.ps1
@@ -86,10 +91,13 @@ jobs:
       - uses: actions/checkout@v4
       - run: |
           ADDRESS=$(hostname -I | awk '{print $1}')
-          python scripts/configure.py --hostname rmm.test --vpn-bind "$ADDRESS" --artifact-host rmm.test
-          openssl req -x509 -newkey rsa:2048 -nodes -keyout secrets/tls.key -out secrets/tls.crt -days 1 -subj /CN=rmm.test -addext subjectAltName=DNS:rmm.test
+          python scripts/configure.py --hostname rmm.test --vpn-bind "$ADDRESS" --artifact-host rmm.test --bootstrap-operator ci-initial-admin --crl-port 38445
+          python deploy/proxmox/tls.py --directory secrets/test-issuer --hostname rmm.test --address "$ADDRESS" --crl-url "http://$ADDRESS:38445/ca.crl"
+          cp secrets/test-issuer/server.crt secrets/tls.crt
+          cp secrets/test-issuer/server.key secrets/tls.key
+          cp secrets/test-issuer/ca.crl secrets/pki-public/ca.crl
           docker compose config --quiet
-          docker compose up --build -d
+          docker compose up --build --wait --wait-timeout 300
           for attempt in $(seq 1 60); do
             if curl --fail --silent --show-error --connect-timeout 3 --max-time 5 --insecure --noproxy '*' --resolve "rmm.test:38443:$ADDRESS" https://rmm.test:38443/realms/pcmed/.well-known/openid-configuration > /tmp/discovery.json; then break; fi
             sleep 5
@@ -99,8 +107,9 @@ jobs:
           curl --fail --insecure --noproxy '*' --resolve "rmm.test:38443:$ADDRESS" https://rmm.test:38443/ | grep 'PC MED'
           test "$(curl --silent --insecure --noproxy '*' --resolve "rmm.test:38443:$ADDRESS" -o /dev/null -w '%{http_code}' https://rmm.test:38443/api/me)" = 401
           echo "$ADDRESS rmm.test" | sudo tee -a /etc/hosts > /dev/null
+          python deploy/proxmox/verify-server.py --root . --ca-file secrets/test-issuer/ca.crt --timeout 30
           python -m pip install httpx
-          python scripts/smoke-oidc.py --origin https://rmm.test:38443 --allow-self-signed
+          python scripts/smoke-oidc.py --origin https://rmm.test:38443 --ca-file secrets/test-issuer/ca.crt
       - if: failure()
         run: docker compose logs --tail 150
       - if: always()

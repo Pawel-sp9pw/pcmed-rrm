@@ -1,6 +1,8 @@
 # Wdrożenie PC MED: centrala, bramka i komputery klientów
 
-**Proxmox:** rozpocznij od [PROXMOX.md](PROXMOX.md) — kreator oficjalnego Docker VM Community Scripts, następnie instalator centrali z zaporą Docker i usługą systemd. Sekcja 3 poniżej opisuje alternatywny, ręczny start Compose.
+**Proxmox:** rozpocznij od [PROXMOX.md](PROXMOX.md) — jeden skrypt tworzy LXC przez Community Scripts i wykonuje pełną instalację centrali, HTTPS, konta i autostartu, z końcowym sprawdzeniem usługi. Nie musisz wchodzić do kontenera. Sekcja 3 poniżej opisuje wyłącznie alternatywny, ręczny start Compose; nie powtarzaj jej po instalacji automatycznej.
+
+Pierwsze konto utworzone automatycznie: dane na hoście Proxmox w `/root/pcmed-lxc-CTID-first-login.json` (tylko root). Pierwsze logowanie wymaga zmiany hasła. Publiczny CA jest w `/root/pcmed-lxc-CTID-ca.crt`; rozprowadź go do zaufanych magazynów operatorów i bramek, nigdy jego klucz prywatny. Przy automatycznym CA bramki muszą także mieć dostęp przez VPN do TCP 38445, udostępniającego wyłącznie podpisaną listę CRL. MFA nadal jest opcjonalne.
 
 ## 1. Co pobrać i gdzie są pliki EXE
 

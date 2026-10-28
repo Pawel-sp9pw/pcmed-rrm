@@ -4,6 +4,7 @@ import base64
 import hashlib
 import json
 import secrets
+import ssl
 from html.parser import HTMLParser
 from pathlib import Path
 from urllib.parse import parse_qs, urlencode, urlsplit
@@ -29,15 +30,25 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--origin", required=True)
     parser.add_argument("--allow-self-signed", action="store_true")
+    parser.add_argument("--ca-file")
     args = parser.parse_args()
     origin = args.origin.rstrip("/")
     environment = dict(line.split("=", 1) for line in Path(".env").read_text().splitlines() if "=" in line)
     realm_path = "/admin/realms/pcmed"
     password = secrets.token_urlsafe(32)
-    with httpx.Client(base_url=origin, verify=not args.allow_self_signed, trust_env=False, timeout=30) as client:
+    trust = ssl.create_default_context(cafile=args.ca_file) if args.ca_file else not args.allow_self_signed
+    with httpx.Client(base_url=origin, verify=trust, trust_env=False, timeout=30) as client:
         token = checked(client.post("/realms/master/protocol/openid-connect/token", data={
             "grant_type": "password", "client_id": "admin-cli", "username": "bootstrap-admin", "password": environment["KEYCLOAK_ADMIN_PASSWORD"]}))
         administrator = {"Authorization": "Bearer " + token["access_token"]}
+        first_login = Path("secrets/first-login.json")
+        if first_login.exists():
+            initial = json.loads(first_login.read_text())
+            imported = checked(client.get(realm_path + "/users", headers=administrator, params={"username": initial["username"], "exact": "true"}))
+            assert len(imported) == 1 and imported[0]["enabled"]
+            assert "UPDATE_PASSWORD" in imported[0]["requiredActions"]
+            imported_roles = checked(client.get(realm_path + "/users/" + imported[0]["id"] + "/role-mappings/realm", headers=administrator))
+            assert any(role["name"] == "platform_admin" for role in imported_roles)
 
         def create_user(username, role):
             response = client.post(realm_path + "/users", headers=administrator, json={

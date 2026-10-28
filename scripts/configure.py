@@ -13,9 +13,15 @@ def main():
     parser.add_argument("--vpn-bind", required=True)
     parser.add_argument("--artifact-host", action="append", required=True)
     parser.add_argument("--https-port", type=int, default=38443)
+    parser.add_argument("--bootstrap-operator")
+    parser.add_argument("--crl-port", type=int)
     args = parser.parse_args()
+    if args.bootstrap_operator and not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9_-]{2,63}", args.bootstrap_operator):
+        parser.error("Bootstrap operator must have 3..64 letters, digits, underscores or hyphens")
     if args.https_port != 443 and not 1024 <= args.https_port <= 49151:
         parser.error("HTTPS port must be 443 or in the configurable user-port range 1024..49151")
+    if args.crl_port is not None and (not 1024 <= args.crl_port <= 49151 or args.crl_port == args.https_port):
+        parser.error("CRL port must be a distinct user port 1024..49151")
     hostname = args.hostname.lower()
     if not re.fullmatch(r"[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?", hostname):
         parser.error("Use a DNS hostname without scheme or port")
@@ -30,13 +36,34 @@ def main():
     if (root / ".env").exists() or directory.exists():
         parser.error("Configuration exists; update it deliberately instead of rotating live secrets")
     directory.mkdir(mode=0o700)
-    (directory / "packages").mkdir()
+    packages = directory / "packages"
+    packages.mkdir()
+    packages.chmod(0o755)
+    if args.crl_port:
+        public = directory / "pki-public"
+        public.mkdir()
+        public.chmod(0o755)
     origin = "https://" + hostname + (f":{args.https_port}" if args.https_port != 443 else "")
     realm = (root / "deploy" / "realm.template.json").read_text(encoding="utf-8").replace("${ORIGIN}", origin)
-    (directory / "realm.json").write_text(json.dumps(json.loads(realm), indent=2), encoding="utf-8")
-    (directory / "frontend-config.json").write_text(json.dumps({"authority": origin + "/realms/pcmed", "clientId": "pcmed-console"}), encoding="utf-8")
+    realm = json.loads(realm)
+    if args.bootstrap_operator:
+        password = secrets.token_urlsafe(32)
+        realm["users"] = [{"username": args.bootstrap_operator, "enabled": True,
+                           "realmRoles": ["platform_admin"], "requiredActions": ["UPDATE_PASSWORD"],
+                           "credentials": [{"type": "password", "value": password, "temporary": True}]}]
+        first_login = directory / "first-login.json"
+        first_login.write_text(json.dumps({"origin": origin, "username": args.bootstrap_operator, "password": password}, indent=2), encoding="utf-8")
+        first_login.chmod(0o600)
+    realm_file = directory / "realm.json"
+    realm_file.write_text(json.dumps(realm, indent=2), encoding="utf-8")
+    realm_file.chmod(0o644)
+    frontend_config = directory / "frontend-config.json"
+    frontend_config.write_text(json.dumps({"authority": origin + "/realms/pcmed", "clientId": "pcmed-console"}), encoding="utf-8")
+    frontend_config.chmod(0o644)
     values = {"PCMED_HOSTNAME": hostname, "PCMED_ORIGIN": origin, "HTTPS_PORT": args.https_port, "VPN_BIND_ADDRESS": str(address), "ARTIFACT_HOSTS": ",".join(hosts),
               "DATABASE_PASSWORD": secrets.token_hex(32), "IDENTITY_DATABASE_PASSWORD": secrets.token_hex(32), "KEYCLOAK_ADMIN_PASSWORD": secrets.token_hex(32)}
+    if args.crl_port:
+        values.update({"CRL_PORT": args.crl_port, "COMPOSE_FILE": "compose.yaml:compose.pki.yaml"})
     environment = root / ".env"
     environment.write_text("\n".join(f"{key}={value}" for key, value in values.items()) + "\n", encoding="utf-8")
     environment.chmod(0o600)
