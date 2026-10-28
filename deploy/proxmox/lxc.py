@@ -67,7 +67,7 @@ def community_environment(settings, marker, password):
         "COMMUNITY_SCRIPTS_CORE_URL": f"https://raw.githubusercontent.com/community-scripts/core/{CORE_REVISION}",
         "var_os": "debian", "var_version": "13", "var_ctid": str(settings["ctid"]), "var_hostname": settings["hostname"],
         "var_cpu": str(settings["cores"]), "var_ram": str(settings["memory"]), "var_disk": str(settings["disk"]),
-        "var_brg": settings["bridge"], "var_net": settings["address_cidr"], "var_gateway": settings["gateway"], "var_ns": settings["dns"],
+        "var_brg": settings["bridge"], "var_net": settings["address_cidr"], "var_gateway": settings["gateway"], "var_ns": ",".join(settings["dns"].split()),
         "var_container_storage": settings["storage"], "var_template_storage": settings["template_storage"],
         "var_unprivileged": "1", "var_nesting": "1", "var_keyctl": "1", "var_ssh": "no", "var_ipv6_method": "none",
         "var_docker_socket": "n", "var_docker_compose": "y", "var_docker_lxcfs": "n", "var_pw": password,

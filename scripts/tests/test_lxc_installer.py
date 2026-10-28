@@ -83,6 +83,7 @@ class LxcInstallerTests(unittest.TestCase):
         self.assertEqual(environment["var_docker_socket"], "n")
         self.assertEqual(environment["var_unprivileged"], "1")
         self.assertEqual(environment["var_net"], "172.20.0.8/24")
+        self.assertEqual(environment["var_ns"], "172.20.0.1,1.1.1.1")
         self.assertIn(LXC.CORE_REVISION, environment["COMMUNITY_SCRIPTS_CORE_URL"])
         self.assertNotIn("COMMUNITY_SCRIPTS_CORE_DIR", environment)
 
