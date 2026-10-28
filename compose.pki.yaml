@@ -1,0 +1,4 @@
+services:
+  web:
+    ports: ["${VPN_BIND_ADDRESS}:${CRL_PORT:?Set CRL_PORT}:8081"]
+    volumes: ["./secrets/pki-public:/srv/pcmed-pki:ro"]

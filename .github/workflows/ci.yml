@@ -1,0 +1,116 @@
+name: Verify MVP
+on:
+  push:
+    branches: [main]
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  deployment:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - run: python -m unittest discover -s scripts/tests -v
+      - run: for script in deploy/proxmox/*.sh; do bash -n "$script"; done
+      - run: |
+          printf '%s' '{"address":"172.20.0.8","port":38443,"crl_port":38445,"allowed_cidrs":["10.44.0.0/24"]}' > /tmp/pcmed-firewall.json
+          python deploy/proxmox/firewall.py --config /tmp/pcmed-firewall.json --check > /tmp/pcmed-firewall.rules
+          sudo iptables-restore --test --noflush < /tmp/pcmed-firewall.rules
+  backend:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: pcmed_test
+          POSTGRES_USER: pcmed
+          POSTGRES_PASSWORD: test-only-password
+        ports: ['5432:5432']
+        options: --health-cmd "pg_isready -U pcmed -d pcmed_test" --health-interval 5s --health-timeout 3s --health-retries 20
+    env:
+      TEST_DATABASE_URL: postgresql+psycopg://pcmed:test-only-password@localhost/pcmed_test
+      PCMED_DATABASE_URL: postgresql+psycopg://pcmed:test-only-password@localhost/pcmed_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - run: pip install -r backend/requirements.lock -e 'backend[test]' pip-audit
+      - run: pip-audit --skip-editable --progress-spinner off
+      - run: alembic upgrade head && alembic check
+        working-directory: backend
+      - run: pytest -q
+        working-directory: backend
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with: { version: '11.25.0' }
+      - uses: actions/setup-node@v4
+        with: { node-version: '24', cache: pnpm, cache-dependency-path: frontend/pnpm-lock.yaml }
+      - run: pnpm install --frozen-lockfile
+        working-directory: frontend
+      - run: pnpm test && pnpm run build && pnpm audit --audit-level high
+        working-directory: frontend
+  windows:
+    runs-on: windows-latest
+    defaults:
+      run: { working-directory: windows }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with: { dotnet-version: '10.0.x' }
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - run: |
+          $env:PATH = 'C:\Program Files\Git\usr\bin;' + $env:PATH
+          python -m unittest discover -s ../scripts/tests -v
+      - run: dotnet restore PcMed.sln --locked-mode
+      - run: dotnet test PcMed.sln -c Release --no-restore
+      - run: ../scripts/publish-windows.ps1
+      - run: ../scripts/test-package.ps1
+      - run: ../scripts/test-install-security.ps1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-mvp
+          path: artifacts/windows
+          retention-days: 30
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-install-zip
+          path: |
+            artifacts/pcmed-windows-mvp.zip
+            artifacts/pcmed-windows-mvp.zip.sha256
+          retention-days: 30
+  compose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          ADDRESS=$(hostname -I | awk '{print $1}')
+          python scripts/configure.py --hostname rmm.test --vpn-bind "$ADDRESS" --artifact-host rmm.test --bootstrap-operator ci-initial-admin --crl-port 38445
+          python deploy/proxmox/tls.py --directory secrets/test-issuer --hostname rmm.test --address "$ADDRESS" --crl-url "http://$ADDRESS:38445/ca.crl"
+          cp secrets/test-issuer/server.crt secrets/tls.crt
+          cp secrets/test-issuer/server.key secrets/tls.key
+          install -m 644 secrets/test-issuer/ca.crl secrets/pki-public/ca.crl
+          docker compose config --quiet
+          docker compose up --build --wait --wait-timeout 300
+          for attempt in $(seq 1 60); do
+            if curl --fail --silent --show-error --connect-timeout 3 --max-time 5 --insecure --noproxy '*' --resolve "rmm.test:38443:$ADDRESS" https://rmm.test:38443/realms/pcmed/.well-known/openid-configuration > /tmp/discovery.json; then break; fi
+            sleep 5
+          done
+          python -c "import json; assert json.load(open('/tmp/discovery.json'))['issuer'] == 'https://rmm.test:38443/realms/pcmed'"
+          docker compose exec -T api python -c "import json,urllib.request; data=json.load(urllib.request.urlopen('http://keycloak:8080/realms/pcmed/protocol/openid-connect/certs')); assert any(key.get('alg') == 'RS256' for key in data['keys'])"
+          curl --fail --insecure --noproxy '*' --resolve "rmm.test:38443:$ADDRESS" https://rmm.test:38443/ | grep 'PC MED'
+          test "$(curl --silent --insecure --noproxy '*' --resolve "rmm.test:38443:$ADDRESS" -o /dev/null -w '%{http_code}' https://rmm.test:38443/api/me)" = 401
+          echo "$ADDRESS rmm.test" | sudo tee -a /etc/hosts > /dev/null
+          python deploy/proxmox/verify-server.py --root . --ca-file secrets/test-issuer/ca.crt --timeout 30
+          python -m pip install httpx
+          python scripts/smoke-oidc.py --origin https://rmm.test:38443 --ca-file secrets/test-issuer/ca.crt
+      - if: failure()
+        run: docker compose logs --tail 150
+      - if: always()
+        run: docker compose down
